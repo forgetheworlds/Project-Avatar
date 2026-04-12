@@ -14,7 +14,7 @@ title: Clone PX4-Autopilot repository
 track: Environment
 wave: 1
 blockedBy: []
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -45,7 +45,7 @@ title: Checkout PX4 v1.15.0 stable release
 track: Environment
 wave: 1
 blockedBy: [A-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 2
 assignee: null
 
@@ -75,7 +75,7 @@ title: Run macOS setup script
 track: Environment
 wave: 1
 blockedBy: [A-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 30
 assignee: null
 
@@ -106,7 +106,7 @@ title: Build PX4 SITL with Gazebo (gz_x500)
 track: Environment
 wave: 1
 blockedBy: [A-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -136,7 +136,7 @@ title: Create avatar/ directory structure
 track: Structure
 wave: 1
 blockedBy: []
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -176,7 +176,7 @@ title: Initialize Python virtual environment
 track: Structure
 wave: 1
 blockedBy: [B-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 3
 assignee: null
 
@@ -206,7 +206,7 @@ title: Install core dependencies (mavsdk, opencv, etc.)
 track: Structure
 wave: 1
 blockedBy: [B-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -244,7 +244,7 @@ title: Initialize Git repository
 track: Structure
 wave: 1
 blockedBy: [B-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 3
 assignee: null
 
@@ -275,7 +275,7 @@ title: Create .claude/ directory structure
 track: ClaudeConfig
 wave: 1
 blockedBy: []
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -310,7 +310,7 @@ title: Create project CLAUDE.md with drone-specific instructions
 track: ClaudeConfig
 wave: 1
 blockedBy: [P-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -348,7 +348,7 @@ title: Create settings.json with drone permissions
 track: ClaudeConfig
 wave: 1
 blockedBy: [P-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -387,7 +387,7 @@ title: Create .mcp.json for drone MCP server registration
 track: ClaudeConfig
 wave: 1
 blockedBy: [P-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 

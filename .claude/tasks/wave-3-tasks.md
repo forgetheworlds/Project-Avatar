@@ -14,7 +14,7 @@ title: Implement arm_and_takeoff tool
 track: MCPServer
 wave: 3
 blockedBy: [D-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -57,7 +57,7 @@ title: Implement goto_gps tool
 track: MCPServer
 wave: 3
 blockedBy: [D-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -97,7 +97,7 @@ title: Implement get_telemetry tool
 track: MCPServer
 wave: 3
 blockedBy: [D-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -129,7 +129,7 @@ title: Implement land tool
 track: MCPServer
 wave: 3
 blockedBy: [D-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -158,7 +158,7 @@ title: Implement abort_mission/RTL tool
 track: MCPServer
 wave: 3
 blockedBy: [D-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -188,7 +188,7 @@ title: Test MCP server with Claude Code connection
 track: AgentTest
 wave: 3
 blockedBy: [D-003, D-004, D-005, D-006, D-007, P-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -221,7 +221,7 @@ title: Verify all tools appear in Claude Code
 track: AgentTest
 wave: 3
 blockedBy: [E-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -253,7 +253,7 @@ title: Create vision/ directory structure
 track: Vision
 wave: 3
 blockedBy: [B-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -281,7 +281,7 @@ title: Create gazebo_camera_client.py
 track: Vision
 wave: 3
 blockedBy: [G-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -312,7 +312,7 @@ title: Create mock_detector.py for synthetic detections
 track: Vision
 wave: 3
 blockedBy: [G-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 25
 assignee: null
 
@@ -346,7 +346,7 @@ title: Test vision pipeline with mock data
 track: Vision
 wave: 3
 blockedBy: [G-002, G-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -374,7 +374,7 @@ title: Create /fly skill definition
 track: Skills
 wave: 3
 blockedBy: [D-003, D-004, D-005, D-006, D-007]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -409,7 +409,7 @@ title: Create /preflight skill definition
 track: Skills
 wave: 3
 blockedBy: [S-006]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -441,7 +441,7 @@ title: Create /mission skill definition
 track: Skills
 wave: 3
 blockedBy: [D-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -473,7 +473,7 @@ title: Create /abort skill definition
 track: Skills
 wave: 3
 blockedBy: [D-007]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -502,7 +502,7 @@ title: Create /drone-status skill definition
 track: Skills
 wave: 3
 blockedBy: [D-005]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 

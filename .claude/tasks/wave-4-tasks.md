@@ -14,7 +14,7 @@ title: Create planning/ directory structure
 track: Maps
 wave: 4
 blockedBy: [B-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -41,7 +41,7 @@ title: Create maps_integration.py with Google Maps API
 track: Maps
 wave: 4
 blockedBy: [H-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 30
 assignee: null
 
@@ -71,7 +71,7 @@ title: Test maps planning with real location queries
 track: Maps
 wave: 4
 blockedBy: [H-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -99,7 +99,7 @@ title: Create mcp_server/confirmation.py
 track: Safety
 wave: 4
 blockedBy: [D-003, D-004, D-005, D-006, D-007]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 25
 assignee: null
 
@@ -134,7 +134,7 @@ title: Implement progressive confirmation workflow
 track: Safety
 wave: 4
 blockedBy: [I-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 30
 assignee: null
 
@@ -184,7 +184,7 @@ title: Create tests/test_safety_scenarios.py
 track: Safety
 wave: 4
 blockedBy: [I-002, G-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -213,7 +213,7 @@ title: Test person detection -> confirmation flow
 track: Safety
 wave: 4
 blockedBy: [I-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -244,7 +244,7 @@ title: Test low battery -> RTL flow
 track: Safety
 wave: 4
 blockedBy: [I-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -273,7 +273,7 @@ title: Create PreToolUse hook for dangerous commands
 track: Hooks
 wave: 4
 blockedBy: [Q-001, Q-002, Q-003, Q-004, Q-005]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -308,7 +308,7 @@ title: Create PostToolUse hook for telemetry validation
 track: Hooks
 wave: 4
 blockedBy: [R-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -338,7 +338,7 @@ title: Create PreCompact hook for mission state preservation
 track: Hooks
 wave: 4
 blockedBy: [R-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -368,7 +368,7 @@ title: Create Notification hook for mission events
 track: Hooks
 wave: 4
 blockedBy: [R-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -402,7 +402,7 @@ title: Create Safety Gate hook (geofence, altitude, battery)
 track: Hooks
 wave: 4
 blockedBy: [I-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 25
 assignee: null
 
@@ -434,7 +434,7 @@ title: Create Confirmation Timeout hook
 track: Hooks
 wave: 4
 blockedBy: [I-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -462,7 +462,7 @@ title: Create Vision Exception hook
 track: Hooks
 wave: 4
 blockedBy: [G-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -495,7 +495,7 @@ title: Create Abort Cascade hook
 track: Hooks
 wave: 4
 blockedBy: [D-007]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 

@@ -14,7 +14,7 @@ title: Start SITL and verify Gazebo visualization
 track: Environment
 wave: 2
 blockedBy: [A-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -46,7 +46,7 @@ title: Test MAVSDK connection to SITL (udp://:14540)
 track: Environment
 wave: 2
 blockedBy: [A-005]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -90,7 +90,7 @@ title: Create tests/test_sitl_basic.py
 track: FlightTest
 wave: 2
 blockedBy: [B-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -125,7 +125,7 @@ title: Run basic arm/takeoff/land test in SITL
 track: FlightTest
 wave: 2
 blockedBy: [A-006, C-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -158,7 +158,7 @@ title: Create mcp_server/ directory and files
 track: MCPServer
 wave: 2
 blockedBy: [B-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -233,7 +233,7 @@ title: Create subagents/ directory structure
 track: Subagents
 wave: 2
 blockedBy: [B-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 5
 assignee: null
 
@@ -267,7 +267,7 @@ title: Create Mission Planner subagent config
 track: Subagents
 wave: 2
 blockedBy: [S-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -299,7 +299,7 @@ title: Create Safety Guardian subagent config
 track: Subagents
 wave: 2
 blockedBy: [S-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -335,7 +335,7 @@ title: Create Vision subagent config
 track: Subagents
 wave: 2
 blockedBy: [S-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -369,7 +369,7 @@ title: Create Logger subagent config
 track: Subagents
 wave: 2
 blockedBy: [S-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -401,7 +401,7 @@ title: Create Preflight subagent config
 track: Subagents
 wave: 2
 blockedBy: [S-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 

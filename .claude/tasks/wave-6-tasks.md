@@ -14,7 +14,7 @@ title: Update README.md with Phase 0.5 section
 track: Docs
 wave: 6
 blockedBy: [K-004, L-006]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -45,7 +45,7 @@ title: Create PHASE_0_5_SUMMARY.md
 track: Docs
 wave: 6
 blockedBy: [L-005, L-006]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 20
 assignee: null
 
@@ -78,7 +78,7 @@ title: Add DEC-020 to DECISIONS.md
 track: Docs
 wave: 6
 blockedBy: [M-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -109,7 +109,7 @@ title: Create SITL setup guide in docs/
 track: Docs
 wave: 6
 blockedBy: [A-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 25
 assignee: null
 
@@ -141,7 +141,7 @@ title: Update architecture diagram
 track: Docs
 wave: 6
 blockedBy: [M-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -173,7 +173,7 @@ title: Create config/sitl.yaml
 track: Transition
 wave: 6
 blockedBy: [A-004, D-003, D-004, D-005, D-006, D-007]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -209,7 +209,7 @@ title: Create config/hardware.yaml
 track: Transition
 wave: 6
 blockedBy: [N-001]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -246,7 +246,7 @@ title: Create scripts/swap_to_hardware.sh
 track: Transition
 wave: 6
 blockedBy: [N-001, N-002]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
@@ -277,7 +277,7 @@ title: Create hardware transition checklist
 track: Transition
 wave: 6
 blockedBy: [N-003]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 10
 assignee: null
 
@@ -318,7 +318,7 @@ title: Verify all checklist items complete
 track: Transition
 wave: 6
 blockedBy: [M-001, M-002, M-003, M-004, M-005, N-001, N-002, N-003, N-004]
-status: NOT_STARTED
+status: COMPLETED
 estimated_minutes: 15
 assignee: null
 
