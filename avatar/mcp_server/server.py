@@ -107,6 +107,9 @@ from avatar.mcp_server.tools.tracking_tools import (
     set_gimbal, point_camera_at, orbit_target,
     track_target, spiral_search
 )
+from avatar.mcp_server.tools.cinematic_shots import (
+    execute_cinematic_shot, list_cinematic_templates, preview_cinematic_shot
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -889,6 +892,85 @@ class AvatarMCPServer:
                         "required": ["center_lat", "center_lon"],
                     },
                 ),
+                # Cinematic shot tools
+                types.Tool(
+                    name="execute_cinematic_shot",
+                    description=(
+                        "Execute a pre-programmed cinematic shot with smooth motion curves. "
+                        "Professional-quality filming for action sports. "
+                        "Templates: orbit_close, orbit_wide, follow_close, follow_wide, "
+                        "reveal_hero, pass_by_low, top_down_dynamic, height_locked_jump, "
+                        "fpv_dynamic, snowboard_halfpipe, skate_ledge_gap. "
+                        "Features height-locked tracking (±0.2m) for tricks at specific heights."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "template_name": {
+                                "type": "string",
+                                "description": "Shot template name (e.g., 'orbit_close', 'follow_close')",
+                            },
+                            "target_lat": {
+                                "type": "number",
+                                "description": "Target/subject latitude",
+                            },
+                            "target_lon": {
+                                "type": "number",
+                                "description": "Target/subject longitude",
+                            },
+                            "target_alt_m": {
+                                "type": "number",
+                                "description": "Target altitude (optional, uses current if not set)",
+                            },
+                            "duration_s": {
+                                "type": "number",
+                                "description": "Override shot duration (optional)",
+                            },
+                            "custom_params": {
+                                "type": "object",
+                                "description": "Custom parameter overrides (optional)",
+                            },
+                        },
+                        "required": ["template_name", "target_lat", "target_lon"],
+                    },
+                ),
+                types.Tool(
+                    name="list_cinematic_templates",
+                    description=(
+                        "List all available cinematic shot templates with descriptions. "
+                        "Use this to discover available shots before executing."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="preview_cinematic_shot",
+                    description=(
+                        "Preview a cinematic shot trajectory without executing. "
+                        "Shows planned path, waypoints, and estimated duration."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "template_name": {
+                                "type": "string",
+                                "description": "Shot template name",
+                            },
+                            "target_lat": {
+                                "type": "number",
+                                "description": "Target latitude",
+                            },
+                            "target_lon": {
+                                "type": "number",
+                                "description": "Target longitude",
+                            },
+                        },
+                        "required": ["template_name", "target_lat", "target_lon"],
+                    },
+                ),
             ]
 
         @self.server.call_tool()  # type: ignore[untyped-decorator]
@@ -1077,6 +1159,27 @@ class AvatarMCPServer:
                 max_altitude_m=arguments.get("max_altitude_m", 50.0),
                 rotations=arguments.get("rotations", 3.0),
                 speed_m_s=arguments.get("speed_m_s", 5.0)
+            )
+
+        # Cinematic shot tools
+        elif name == "execute_cinematic_shot":
+            return await execute_cinematic_shot(
+                template_name=arguments.get("template_name", ""),
+                target_lat=arguments.get("target_lat", 0.0),
+                target_lon=arguments.get("target_lon", 0.0),
+                target_alt_m=arguments.get("target_alt_m"),
+                duration_s=arguments.get("duration_s"),
+                custom_params=arguments.get("custom_params"),
+            )
+
+        elif name == "list_cinematic_templates":
+            return await list_cinematic_templates()
+
+        elif name == "preview_cinematic_shot":
+            return await preview_cinematic_shot(
+                template_name=arguments.get("template_name", ""),
+                target_lat=arguments.get("target_lat", 0.0),
+                target_lon=arguments.get("target_lon", 0.0),
             )
 
         else:

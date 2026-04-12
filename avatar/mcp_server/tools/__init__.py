@@ -54,6 +54,12 @@ from avatar.mcp_server.tools.tracking_tools import (
     spiral_search,
 )
 
+from avatar.mcp_server.tools.cinematic_shots import (
+    execute_cinematic_shot,
+    list_cinematic_templates,
+    preview_cinematic_shot,
+)
+
 __all__ = [
     # Flight tools
     "FlightTools",
@@ -99,4 +105,8 @@ __all__ = [
     "orbit_target",
     "track_target",
     "spiral_search",
+    # Cinematic shot tools
+    "execute_cinematic_shot",
+    "list_cinematic_templates",
+    "preview_cinematic_shot",
 ]
