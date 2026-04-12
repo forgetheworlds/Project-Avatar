@@ -46,6 +46,14 @@ from avatar.mcp_server.tools.acrobatics import (
     acrobatic_sequence,
 )
 
+from avatar.mcp_server.tools.tracking_tools import (
+    set_gimbal,
+    point_camera_at,
+    orbit_target,
+    track_target,
+    spiral_search,
+)
+
 __all__ = [
     # Flight tools
     "FlightTools",
@@ -85,4 +93,10 @@ __all__ = [
     "loop_maneuver",
     "corkscrew",
     "acrobatic_sequence",
+    # Tracking tools
+    "set_gimbal",
+    "point_camera_at",
+    "orbit_target",
+    "track_target",
+    "spiral_search",
 ]

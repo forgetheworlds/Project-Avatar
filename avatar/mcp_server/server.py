@@ -103,6 +103,10 @@ from avatar.mcp_server.tools.acrobatics import (
     front_flip, back_flip, barrel_roll, yaw_spin,
     loop_maneuver, corkscrew, acrobatic_sequence
 )
+from avatar.mcp_server.tools.tracking_tools import (
+    set_gimbal, point_camera_at, orbit_target,
+    track_target, spiral_search
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -640,6 +644,251 @@ class AvatarMCPServer:
                         "required": [],
                     },
                 ),
+                # Tracking and camera control tools
+                types.Tool(
+                    name="set_gimbal",
+                    description=(
+                        "Control camera gimbal angles independently of drone. "
+                        "Set pitch (-90°=down, 0°=level, 30°=up), yaw (-180° to 180°), "
+                        "and roll (-45° to 45°). "
+                        "Useful for looking at targets while flying."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "pitch_deg": {
+                                "type": "number",
+                                "description": "Pitch angle: -90=down, 0=level, 30=up",
+                                "default": -45.0,
+                                "minimum": -90.0,
+                                "maximum": 30.0,
+                            },
+                            "yaw_deg": {
+                                "type": "number",
+                                "description": "Yaw angle relative to drone (-180 to 180)",
+                                "default": 0.0,
+                                "minimum": -180.0,
+                                "maximum": 180.0,
+                            },
+                            "roll_deg": {
+                                "type": "number",
+                                "description": "Roll angle (-45 to 45)",
+                                "default": 0.0,
+                                "minimum": -45.0,
+                                "maximum": 45.0,
+                            },
+                        },
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="point_camera_at",
+                    description=(
+                        "Point camera at specific GPS coordinates. "
+                        "Calculates gimbal angles automatically. "
+                        "Drone stays in position, only camera moves."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "lat": {
+                                "type": "number",
+                                "description": "Target latitude",
+                            },
+                            "lon": {
+                                "type": "number",
+                                "description": "Target longitude",
+                            },
+                            "alt_m": {
+                                "type": "number",
+                                "description": "Target altitude (optional)",
+                            },
+                        },
+                        "required": ["lat", "lon"],
+                    },
+                ),
+                types.Tool(
+                    name="orbit_target",
+                    description=(
+                        "Circle around a target while keeping camera locked. "
+                        "Flies in a circle around target coordinates while "
+                        "continuously pointing camera at center. "
+                        "Perfect for cinematic shots or surveillance."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "target_lat": {
+                                "type": "number",
+                                "description": "Target latitude",
+                            },
+                            "target_lon": {
+                                "type": "number",
+                                "description": "Target longitude",
+                            },
+                            "target_alt_m": {
+                                "type": "number",
+                                "description": "Target altitude",
+                            },
+                            "radius_m": {
+                                "type": "number",
+                                "description": "Orbit radius in meters",
+                                "default": 10.0,
+                                "minimum": 5.0,
+                                "maximum": 100.0,
+                            },
+                            "speed_m_s": {
+                                "type": "number",
+                                "description": "Orbit speed",
+                                "default": 3.0,
+                                "minimum": 1.0,
+                                "maximum": 10.0,
+                            },
+                            "altitude_offset_m": {
+                                "type": "number",
+                                "description": "Height above target",
+                                "default": 15.0,
+                                "minimum": 10.0,
+                                "maximum": 50.0,
+                            },
+                            "clockwise": {
+                                "type": "boolean",
+                                "description": "Orbit direction",
+                                "default": True,
+                            },
+                            "duration_s": {
+                                "type": "number",
+                                "description": "Orbit duration",
+                                "default": 30.0,
+                                "minimum": 5.0,
+                                "maximum": 300.0,
+                            },
+                            "keep_camera_locked": {
+                                "type": "boolean",
+                                "description": "Keep camera on target",
+                                "default": True,
+                            },
+                        },
+                        "required": ["target_lat", "target_lon"],
+                    },
+                ),
+                types.Tool(
+                    name="track_target",
+                    description=(
+                        "Track and follow a moving target. "
+                        "Follows targets like snowboarders, cars, or people "
+                        "while maintaining camera lock. Supports predictive tracking."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "target_lat": {
+                                "type": "number",
+                                "description": "Initial target latitude",
+                            },
+                            "target_lon": {
+                                "type": "number",
+                                "description": "Initial target longitude",
+                            },
+                            "target_velocity_north": {
+                                "type": "number",
+                                "description": "Target velocity north (m/s)",
+                                "default": 0.0,
+                            },
+                            "target_velocity_east": {
+                                "type": "number",
+                                "description": "Target velocity east (m/s)",
+                                "default": 0.0,
+                            },
+                            "follow_distance_m": {
+                                "type": "number",
+                                "description": "Distance behind target",
+                                "default": 8.0,
+                                "minimum": 5.0,
+                                "maximum": 30.0,
+                            },
+                            "altitude_m": {
+                                "type": "number",
+                                "description": "Tracking altitude",
+                                "default": 20.0,
+                                "minimum": 15.0,
+                                "maximum": 50.0,
+                            },
+                            "speed_m_s": {
+                                "type": "number",
+                                "description": "Maximum tracking speed",
+                                "default": 8.0,
+                                "minimum": 3.0,
+                                "maximum": 15.0,
+                            },
+                            "duration_s": {
+                                "type": "number",
+                                "description": "Tracking duration",
+                                "default": 60.0,
+                                "maximum": 300.0,
+                            },
+                            "predictive": {
+                                "type": "boolean",
+                                "description": "Use velocity prediction",
+                                "default": True,
+                            },
+                            "tracking_mode": {
+                                "type": "string",
+                                "description": "Position relative to target",
+                                "enum": ["follow", "lead", "side"],
+                                "default": "follow",
+                            },
+                        },
+                        "required": ["target_lat", "target_lon"],
+                    },
+                ),
+                types.Tool(
+                    name="spiral_search",
+                    description=(
+                        "Perform expanding spiral search pattern. "
+                        "Flies outward spiral while climbing, keeping camera "
+                        "pointed at center. Useful for search and rescue."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "center_lat": {
+                                "type": "number",
+                                "description": "Center latitude",
+                            },
+                            "center_lon": {
+                                "type": "number",
+                                "description": "Center longitude",
+                            },
+                            "start_altitude_m": {
+                                "type": "number",
+                                "description": "Starting altitude",
+                                "default": 20.0,
+                            },
+                            "max_radius_m": {
+                                "type": "number",
+                                "description": "Maximum spiral radius",
+                                "default": 100.0,
+                            },
+                            "max_altitude_m": {
+                                "type": "number",
+                                "description": "Maximum altitude",
+                                "default": 50.0,
+                            },
+                            "rotations": {
+                                "type": "number",
+                                "description": "Number of rotations",
+                                "default": 3.0,
+                            },
+                            "speed_m_s": {
+                                "type": "number",
+                                "description": "Flight speed",
+                                "default": 5.0,
+                            },
+                        },
+                        "required": ["center_lat", "center_lon"],
+                    },
+                ),
             ]
 
         @self.server.call_tool()  # type: ignore[untyped-decorator]
@@ -776,6 +1025,59 @@ class AvatarMCPServer:
 
         elif name == "corkscrew":
             return await corkscrew(arguments.get("rotations", 1.0))
+
+        # Tracking and camera control tools
+        elif name == "set_gimbal":
+            return await set_gimbal(
+                pitch_deg=arguments.get("pitch_deg", -45.0),
+                yaw_deg=arguments.get("yaw_deg", 0.0),
+                roll_deg=arguments.get("roll_deg", 0.0)
+            )
+
+        elif name == "point_camera_at":
+            return await point_camera_at(
+                lat=arguments.get("lat", 0.0),
+                lon=arguments.get("lon", 0.0),
+                alt_m=arguments.get("alt_m")
+            )
+
+        elif name == "orbit_target":
+            return await orbit_target(
+                target_lat=arguments.get("target_lat", 0.0),
+                target_lon=arguments.get("target_lon", 0.0),
+                target_alt_m=arguments.get("target_alt_m"),
+                radius_m=arguments.get("radius_m", 10.0),
+                speed_m_s=arguments.get("speed_m_s", 3.0),
+                altitude_offset_m=arguments.get("altitude_offset_m", 15.0),
+                clockwise=arguments.get("clockwise", True),
+                duration_s=arguments.get("duration_s", 30.0),
+                keep_camera_locked=arguments.get("keep_camera_locked", True)
+            )
+
+        elif name == "track_target":
+            return await track_target(
+                target_lat=arguments.get("target_lat", 0.0),
+                target_lon=arguments.get("target_lon", 0.0),
+                target_velocity_north=arguments.get("target_velocity_north", 0.0),
+                target_velocity_east=arguments.get("target_velocity_east", 0.0),
+                follow_distance_m=arguments.get("follow_distance_m", 8.0),
+                altitude_m=arguments.get("altitude_m", 20.0),
+                speed_m_s=arguments.get("speed_m_s", 8.0),
+                duration_s=arguments.get("duration_s", 60.0),
+                predictive=arguments.get("predictive", True),
+                tracking_mode=arguments.get("tracking_mode", "follow")
+            )
+
+        elif name == "spiral_search":
+            return await spiral_search(
+                center_lat=arguments.get("center_lat", 0.0),
+                center_lon=arguments.get("center_lon", 0.0),
+                start_altitude_m=arguments.get("start_altitude_m", 20.0),
+                max_radius_m=arguments.get("max_radius_m", 100.0),
+                max_altitude_m=arguments.get("max_altitude_m", 50.0),
+                rotations=arguments.get("rotations", 3.0),
+                speed_m_s=arguments.get("speed_m_s", 5.0)
+            )
 
         else:
             return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
