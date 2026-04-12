@@ -93,11 +93,11 @@ WAVE 6: Integration (Depends on Waves 3, 4, 5)
 - Test: `tests/mav/test_connection_manager.py`
 
 **Acceptance Criteria:**
-- [ ] Connection manager is true singleton (one instance across all imports)
-- [ ] First connection takes <5s, subsequent commands <100ms
-- [ ] Automatic reconnection on connection loss
-- [ ] Thread-safe for concurrent access
-- [ ] Health monitoring and degraded state reporting
+- [X] Connection manager is true singleton (one instance across all imports)
+- [X] First connection takes <5s, subsequent commands <100ms
+- [X] Automatic reconnection on connection loss
+- [X] Thread-safe for concurrent access
+- [X] Health monitoring and degraded state reporting
 
 **Verify:** `pytest tests/mav/test_connection_manager.py -v`
 
@@ -438,11 +438,11 @@ git commit -m "feat(mav): add singleton connection manager
 - Test: `tests/mav/test_telemetry_cache.py`
 
 **Acceptance Criteria:**
-- [ ] Telemetry data cached and refreshed at 100ms intervals
-- [ ] Cache hit returns data in <1ms
-- [ ] Cache automatically refreshes in background
-- [ ] Thread-safe concurrent access
-- [ ] Stale data detection (>500ms old flagged)
+- [X] Telemetry data cached and refreshed at 100ms intervals
+- [X] Cache hit returns data in <1ms
+- [X] Cache automatically refreshes in background
+- [X] Thread-safe concurrent access
+- [X] Stale data detection (>500ms old flagged)
 
 **Verify:** `pytest tests/mav/test_telemetry_cache.py -v`
 
@@ -922,10 +922,10 @@ git commit -m "feat(mav): add telemetry cache system
 - Test: `tests/test_protocols.py`
 
 **Acceptance Criteria:**
-- [ ] Protocol classes for DroneConnection, TelemetryProvider, SafetyValidator
-- [ ] All public APIs use Protocol types
-- [ ] mypy --strict passes with no errors
-- [ ] Runtime isinstance checks work correctly
+- [X] Protocol classes for DroneConnection, TelemetryProvider, SafetyValidator
+- [X] All public APIs use Protocol types
+- [X] mypy --strict passes with no errors
+- [X] Runtime isinstance checks work correctly
 
 **Verify:** `mypy --strict avatar/mav/protocols.py avatar/mcp_server/protocols.py`
 
@@ -1213,11 +1213,11 @@ git commit -m "feat: add strict protocol definitions
 - Test: `tests/mav/test_heartbeat_service.py`
 
 **Acceptance Criteria:**
-- [ ] Heartbeat emitted at exactly 20Hz (50ms intervals)
-- [ ] Offboard timeout triggers at 500ms (10 missed beats)
-- [ ] Latency <50ms between scheduled and actual emission
-- [ ] Automatic failsafe trigger on timeout
-- [ ] Multiple heartbeat sources tracked separately
+- [X] Heartbeat emitted at exactly 20Hz (50ms intervals)
+- [X] Offboard timeout triggers at 500ms (10 missed beats)
+- [X] Latency <50ms between scheduled and actual emission
+- [X] Automatic failsafe trigger on timeout
+- [X] Multiple heartbeat sources tracked separately
 
 **Verify:** `pytest tests/mav/test_heartbeat_service.py -v`
 
@@ -1619,11 +1619,11 @@ git commit -m "feat(mav): add 20Hz heartbeat service
 - Test: `tests/mav/test_state_machine.py`
 
 **Acceptance Criteria:**
-- [ ] All 12 flight states implemented (INIT, DISARMED, ARMED, TAKING_OFF, HOVERING, etc.)
-- [ ] Valid transitions enforced (no invalid state changes)
-- [ ] Telemetry-based state synchronization
-- [ ] Thread-safe state transitions
-- [ ] State history for debugging
+- [X] All 12 flight states implemented (INIT, DISARMED, ARMED, TAKING_OFF, HOVERING, etc.)
+- [X] Valid transitions enforced (no invalid state changes)
+- [X] Telemetry-based state synchronization
+- [X] Thread-safe state transitions
+- [X] State history for debugging
 
 **Verify:** `pytest tests/mav/test_state_machine.py -v`
 
