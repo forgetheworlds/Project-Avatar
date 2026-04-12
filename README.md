@@ -69,7 +69,9 @@ An autonomous drone system controlled by natural language via **any AI agent** (
 
 | Resource | Description |
 |----------|-------------|
-| **[Phase 0.5 Plan](./research/01-core-project/PHASE_0_5_FULL_SITL_PLAN.md)** | **START HERE** - 3-week simulation roadmap |
+| **[Phase 0.5 Summary](./PHASE_0_5_SUMMARY.md)** | **NEW** - Completion report and test results |
+| **[SITL Setup Guide](./docs/sitl_setup.md)** | **NEW** - Step-by-step installation |
+| **[Phase 0.5 Plan](./research/01-core-project/PHASE_0_5_FULL_SITL_PLAN.md)** | 3-week simulation roadmap |
 | **[Agent Connection Guide](./research/03-software-architecture/AGENT_CONNECTION_QUICKSTART.md)** | Connect Claude Code, OpenCode, or any MCP agent |
 | **[PRD](./research/01-core-project/project_avatar_prd.md)** | Full product requirements - Stages 1/2/3 |
 | **[Roadmap](./research/01-core-project/project_avatar_roadmap.md)** | Complete schedule: Phase 0.5 → Stage 0 → Stage 1/2/3 |
@@ -80,31 +82,33 @@ An autonomous drone system controlled by natural language via **any AI agent** (
 
 ## 🚀 Current Status
 
-### Phase 0.5: Virtual Drone (Pre-Hardware)
+### Phase 0.5: Virtual Drone (Pre-Hardware) - **COMPLETE**
 
-**Status**: 🟡 **Planning Complete, Ready to Execute**
+**Status**: ✅ **COMPLETE** - All software validated in simulation
 
 **Goal**: Build and validate complete software stack in PX4 SITL + Gazebo simulation before hardware arrives.
 
-**3-Week Timeline**:
-- **Week -3**: Gazebo SITL setup + basic flight tests
-- **Week -2**: MCP server + Kimi integration + end-to-end pipeline  
-- **Week -1**: Vision simulation + Google Maps + demo video production
-- **Week 0**: Hardware swap preparation
+**Completed Timeline**:
+- **Week -3**: ✅ Gazebo SITL setup + basic flight tests
+- **Week -2**: ✅ MCP server + Kimi integration + end-to-end pipeline
+- **Week -1**: ✅ Vision simulation + Google Maps + demo video ready
+- **Week 0**: ✅ Hardware transition scripts prepared
 
 **Deliverables**:
-- [ ] Working agent-agnostic MCP server
-- [ ] Kimi K2.5 integration with multimodal vision
-- [ ] Progressive confirmation workflow
-- [ ] Google Maps pre-flight planning
-- [ ] **Demo video** (4-5 min) showing full workflow
-- [ ] Hardware transition scripts
+- [x] Working agent-agnostic MCP server
+- [x] Kimi K2.5 integration with multimodal vision
+- [x] Progressive confirmation workflow
+- [x] Google Maps pre-flight planning
+- [x] **Demo video** (4-5 min) - See [PHASE_0_5_SUMMARY.md](./PHASE_0_5_SUMMARY.md)
+- [x] Hardware transition scripts
 
 **Why Phase 0.5?**
 - ✅ Software bugs caught in sim don't crash real drones
 - ✅ Kimi integration validated without hardware risk
 - ✅ Demo video proves concept before budget spent
 - ✅ Software "flight-ready" before parts arrive
+
+**See**: [PHASE_0_5_SUMMARY.md](./PHASE_0_5_SUMMARY.md) for complete results
 
 ---
 
@@ -193,6 +197,96 @@ See full guide: [AGENT_CONNECTION_QUICKSTART.md](./research/03-software-architec
 
 ---
 
+## Phase 0.5 Operational Guide
+
+### Starting the Simulation
+
+**Terminal 1 - Start SITL + Gazebo**:
+```bash
+cd ~/PX4-Autopilot
+make px4_sitl gz_x500
+# Wait for: "[px4] INFO: Ready for takeoff"
+```
+
+**Terminal 2 - Run MCP Server**:
+```bash
+cd ~/Project-Avatar
+source venv/bin/activate
+python avatar/mcp_server/server.py
+# Shows: "Connected to drone at udp://:14540"
+```
+
+**Terminal 3 - Your Agent**:
+```bash
+claude
+# Now use drone tools directly
+```
+
+### Running Tests
+
+```bash
+# Activate environment
+source ~/Project-Avatar/venv/bin/activate
+
+# Basic SITL connectivity test
+python tests/test_sitl_basic.py
+
+# Full integration test (requires FIREWORKS_API_KEY)
+export FIREWORKS_API_KEY="your-key"
+python tests/test_kimi_integration.py
+
+# All Phase 0.5 tests
+python -m pytest tests/phase05/ -v
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `arm_and_takeoff(altitude_m)` | Arm and take off |
+| `goto_gps(lat, lon, alt_m)` | Fly to coordinates |
+| `fly_body_offset(forward, right, up)` | Relative movement |
+| `hold_position(seconds)` | Hold current position |
+| `land()` | Land at current position |
+| `rtl()` | Return to launch |
+| `get_telemetry()` | Get position/velocity |
+| `capture_frame()` | Camera snapshot |
+| `abort_mission(reason)` | Emergency RTL |
+| `plan_mission(request)` | Natural language planning |
+
+### Example Session
+
+```
+User: Check drone status
+Agent: [Calls get_telemetry]
+       Position: lat=47.3977, lon=8.5456, alt=0m
+       Battery: 100%
+       Status: READY
+
+User: Take off to 10 meters
+Agent: [Confirms action]
+       ✓ Armed and taking off to 10m
+       [Shows Gazebo drone lifting off]
+
+User: Hold for 5 seconds then land
+Agent: ✓ Holding at 10m for 5 seconds...
+       ✓ Landing initiated
+       ✓ On ground, disarmed
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Address already in use" | `pkill -f px4; pkill -f gz` |
+| "Connection refused" | Wait for SITL to fully start |
+| "No GPS fix" | Wait 10-30 seconds for convergence |
+| Drone flips on takeoff | Restart SITL with `make px4_sitl gz_x500` |
+
+**Full setup guide**: [docs/sitl_setup.md](./docs/sitl_setup.md)
+
+---
+
 ## 🎬 Demo Video Plan
 
 **Phase 0.5 Deliverable**: 4-5 minute screen recording
@@ -236,40 +330,34 @@ The **software is already proven** - only connection string changes!
 
 ```
 Project-Avatar/
-├── README.md                           # This file
-├── .sisyphus/
-│   └── plans/                          # Implementation plans (Prometheus)
-├── avatar/                             # Main codebase (to be created)
-│   ├── mcp_server/                     # Agent-agnostic MCP server
-│   │   ├── server.py                   # Main MCP server
-│   │   ├── tool_handlers.py            # Flight tool implementations
-│   │   └── confirmation.py             # Progressive confirmation
-│   ├── llm/                            # LLM integration
-│   │   └── kimi_client.py              # Fireworks AI client
-│   ├── mav/                            # MAVSDK wrapper
-│   │   └── connection.py               # SITL/Hardware abstraction
-│   ├── vision/                         # Vision pipeline
-│   │   └── mock_detector.py            # Synthetic detections for Phase 0.5
-│   ├── planning/                       # Pre-flight planning
-│   │   └── maps_integration.py         # Google Maps API
-│   └── tests/                          # Test suite
-│       └── test_sitl_basic.py          # SITL connectivity tests
-├── scripts/
-│   ├── run_mcp_server.py               # Start MCP server
-│   └── swap_to_hardware.py             # Phase 0.5 → Stage 1 transition
-└── research/                           # Documentation (200+ pages)
-    ├── 01-core-project/
-    │   ├── PHASE_0_5_FULL_SITL_PLAN.md  # ← START HERE
-    │   ├── project_avatar_prd.md
-    │   ├── project_avatar_roadmap.md
-    │   └── project_avatar_technical.md
-    ├── 03-software-architecture/
-    │   ├── mcp_agent_agnostic_design.md
-    │   └── AGENT_CONNECTION_QUICKSTART.md
-    └── DECISIONS.md                      # 20 architectural decisions
+├── avatar/                    # Core implementation
+│   ├── mcp_server/           # Agent-agnostic MCP server
+│   │   ├── server.py         # Main MCP server
+│   │   └── confirmation.py   # Progressive confirmation
+│   ├── llm/                  # LLM integration
+│   │   └── kimi_client.py    # Fireworks AI client
+│   ├── vision/               # Vision pipeline
+│   │   └── mock_detector.py  # Simulated detections
+│   ├── planning/             # Mission planning
+│   │   └── maps_integration.py
+│   └── utils/                # Utilities
+│       └── flight_recorder.py
+├── tests/                    # Test suite
+│   ├── test_sitl_basic.py
+│   ├── test_kimi_integration.py
+│   └── test_safety_scenarios.py
+├── PX4-Autopilot/            # PX4 SITL (submodule)
+├── research/                 # Design documents
+│   ├── 01-core-project/      # Roadmap, PRD
+│   ├── 02-safety-failsafe/   # Safety architecture
+│   ├── 03-software-architecture/
+│   ├── 04-vision-perception/
+│   └── DECISIONS.md          # Decision audit trail
+├── docs/                     # Documentation
+│   └── sitl_setup.md         # SITL installation guide
+├── PHASE_0_5_SUMMARY.md      # Phase 0.5 completion report
+└── README.md                 # This file
 ```
-
----
 
 ## 🛡️ Safety
 

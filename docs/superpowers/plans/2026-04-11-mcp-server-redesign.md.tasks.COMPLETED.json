@@ -1,0 +1,38 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-11-mcp-server-redesign.md",
+  "tasks": [
+    {"id": 18, "subject": "T1: Implement Singleton Connection Manager", "status": "completed", "wave": 1, "blockedBy": [], "files": ["avatar/mav/connection_manager.py", "tests/mav/test_connection_manager.py"], "verifyCommand": "pytest tests/mav/test_connection_manager.py -v"},
+    {"id": 19, "subject": "T2: Implement Telemetry Cache System", "status": "completed", "wave": 1, "blockedBy": [], "files": ["avatar/mav/telemetry_cache.py", "tests/mav/test_telemetry_cache.py"], "verifyCommand": "pytest tests/mav/test_telemetry_cache.py -v"},
+    {"id": 20, "subject": "T3: Implement Type Protocols & Interfaces", "status": "completed", "wave": 1, "blockedBy": [], "files": ["avatar/mav/protocols.py", "avatar/mcp_server/protocols.py", "tests/test_protocols.py"], "verifyCommand": "mypy --strict avatar/mav/protocols.py avatar/mcp_server/protocols.py"},
+    {"id": 21, "subject": "T4: Implement 20Hz Heartbeat Service", "status": "completed", "wave": 2, "blockedBy": [18, 19, 20], "files": ["avatar/mav/heartbeat_service.py", "tests/mav/test_heartbeat_service.py"], "verifyCommand": "pytest tests/mav/test_heartbeat_service.py -v"},
+    {"id": 22, "subject": "T5: Implement Flight State Machine", "status": "completed", "wave": 2, "blockedBy": [18, 19, 20], "files": ["avatar/mav/state_machine.py", "tests/mav/test_state_machine.py"], "verifyCommand": "pytest tests/mav/test_state_machine.py -v"},
+    {"id": 23, "subject": "T6: Implement Guardian Async Architecture", "status": "completed", "wave": 3, "blockedBy": [21, 22], "files": ["avatar/mav/guardian_async.py", "tests/mav/test_guardian_async.py"], "verifyCommand": "pytest tests/mav/test_guardian_async.py -v"},
+    {"id": 24, "subject": "T7: Implement Resource Monitor", "status": "completed", "wave": 3, "blockedBy": [21, 22], "files": ["avatar/mav/resource_monitor.py", "tests/mav/test_resource_monitor.py"], "verifyCommand": "pytest tests/mav/test_resource_monitor.py -v"},
+    {"id": 25, "subject": "T8: Implement Escalation Matrix", "status": "completed", "wave": 3, "blockedBy": [21, 22], "files": ["avatar/mav/escalation_matrix.py", "tests/mav/test_escalation_matrix.py"], "verifyCommand": "pytest tests/mav/test_escalation_matrix.py -v"},
+    {"id": 26, "subject": "T9: Implement PX4 Parameter Config", "status": "completed", "wave": 3, "blockedBy": [21, 22], "files": ["avatar/mav/px4_parameters.py", "avatar/mav/parameter_manager.py", "tests/mav/test_px4_parameters.py"], "verifyCommand": "pytest tests/mav/test_px4_parameters.py -v"},
+    {"id": 27, "subject": "T10: Implement set_velocity Tool", "status": "completed", "wave": 4, "blockedBy": [21, 22], "files": ["avatar/mav/offboard_control.py", "tests/mav/test_offboard_control.py"], "verifyCommand": "pytest tests/mav/test_offboard_control.py -v"},
+    {"id": 28, "subject": "T11: Implement fly_body_offset Tool", "status": "completed", "wave": 4, "blockedBy": [21, 22], "files": ["avatar/mcp_server/tools/flight_tools.py", "tests/tools/test_fly_body_offset.py"], "verifyCommand": "pytest tests/tools/test_fly_body_offset.py -v"},
+    {"id": 29, "subject": "T12: Implement hold Tool", "status": "completed", "wave": 4, "blockedBy": [21, 22], "files": ["avatar/mcp_server/tools/flight_tools.py", "tests/tools/test_hold.py"], "verifyCommand": "pytest tests/tools/test_hold.py -v"},
+    {"id": 30, "subject": "T13: Implement get_status Tool", "status": "completed", "wave": 4, "blockedBy": [19, 21, 22], "files": ["avatar/mav/status_aggregator.py", "avatar/mcp_server/tools/flight_tools.py", "tests/tools/test_get_status.py"], "verifyCommand": "pytest tests/tools/test_get_status.py -v"},
+    {"id": 31, "subject": "T14: Implement Timeout Decorators", "status": "completed", "wave": 5, "blockedBy": [18, 19, 20], "files": ["avatar/core/decorators.py", "tests/core/test_decorators.py"], "verifyCommand": "pytest tests/core/test_decorators.py -v"},
+    {"id": 32, "subject": "T15: Implement Property-Based Tests", "status": "completed", "wave": 5, "blockedBy": [18, 19, 20], "files": ["tests/property/test_coordinates.py", "tests/property/test_safety_bounds.py"], "verifyCommand": "pytest tests/property/ -v --hypothesis-seed=0"},
+    {"id": 33, "subject": "T16: Implement Context Managers", "status": "completed", "wave": 5, "blockedBy": [18, 19, 20], "files": ["avatar/core/context_managers.py", "tests/core/test_context_managers.py"], "verifyCommand": "pytest tests/core/test_context_managers.py -v"},
+    {"id": 34, "subject": "T17: Enable Strict Type Checking", "status": "completed", "wave": 5, "blockedBy": [18, 19, 20], "files": ["pyproject.toml"], "verifyCommand": "mypy --strict avatar/"},
+    {"id": 35, "subject": "T18: Implement Server Wiring", "status": "completed", "wave": 6, "blockedBy": [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34], "files": ["avatar/mcp_server/server.py", "tests/mcp_server/test_server_integration.py"], "verifyCommand": "pytest tests/mcp_server/test_server_integration.py -v"},
+    {"id": 36, "subject": "T19: Implement Migration Layer", "status": "completed", "wave": 6, "blockedBy": [35], "files": ["avatar/mcp_server/compat.py", "tests/mcp_server/test_backward_compat.py"], "verifyCommand": "pytest tests/mcp_server/test_backward_compat.py -v"},
+    {"id": 37, "subject": "T20: E2E Integration Tests", "status": "completed", "wave": 6, "blockedBy": [35, 36], "files": ["tests/e2e/test_full_mission.py", "tests/e2e/test_failsafes.py", "tests/e2e/test_performance.py"], "verifyCommand": "pytest tests/e2e/ -v --run-sitl"}
+  ],
+  "waves": [
+    {"wave": 1, "tasks": [18, 19, 20], "name": "Foundation", "canStart": "Immediately", "description": "Singleton connection, telemetry cache, type protocols"},
+    {"wave": 2, "tasks": [21, 22], "name": "Core Infrastructure", "canStart": "After Wave 1", "description": "20Hz heartbeat, flight state machine"},
+    {"wave": 3, "tasks": [23, 24, 25, 26], "name": "Safety System", "canStart": "After Wave 2", "description": "Guardian async, resource monitor, escalation, PX4 config"},
+    {"wave": 4, "tasks": [27, 28, 29, 30], "name": "Flight Tools", "canStart": "After Wave 2", "description": "set_velocity, fly_body_offset, hold, get_status"},
+    {"wave": 5, "tasks": [31, 32, 33, 34], "name": "Code Quality", "canStart": "After Wave 1", "description": "Timeout decorators, property tests, context managers, strict types"},
+    {"wave": 6, "tasks": [35, 36, 37], "name": "Integration", "canStart": "After Waves 3,4,5", "description": "Server wiring, migration layer, E2E tests"}
+  ],
+  "lastUpdated": "2026-04-12T05:45:00Z",
+  "completionStatus": "COMPLETE",
+  "totalTasks": 20,
+  "completedTasks": 20,
+  "testsPassing": 497
+}

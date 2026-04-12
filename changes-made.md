@@ -1,0 +1,3 @@
+- Task 6: Implemented AsyncGuardian architecture in avatar/mav/guardian_async.py with 20Hz concurrent monitoring
+- [2026-04-11] Task 14: Timeout Decorators for Wave 5 - Implemented @timeout, @retry, @require_state, and @combined decorators in avatar/core/decorators.py with comprehensive test suite (33 tests passing)
+- [2026-04-11] Task 15: Property-Based Tests for Wave 5 - Implemented Hypothesis property tests in tests/property/ with 26 tests covering coordinate transformations (GeoPoint, VelocityNED, body_to_ned, haversine_distance) and safety validation (SafetyLimits, EscalationMatrix, battery/geofence escalation)

@@ -221,6 +221,7 @@ class FlightStateMachine:
         "low_battery": FlightState.RTL,
         "critical_battery": FlightState.LANDING,
         "geofence_breach": FlightState.RTL,
+        "position_drift": FlightState.RTL,
         "kill_switch": FlightState.EMERGENCY,
         "offboard_timeout": FlightState.HOLD,
     }

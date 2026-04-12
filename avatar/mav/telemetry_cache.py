@@ -351,6 +351,18 @@ class TelemetryCache:
             age_ms = (time.time() - self._data.timestamp) * 1000
             return age_ms > self.stale_ms
 
+    def get_age_ms(self) -> float:
+        """Get the age of cached data in milliseconds.
+
+        Returns:
+            Age in milliseconds since last update, or infinity if no data.
+        """
+        with self._data_lock:
+            if self._data is None:
+                return float('inf')
+
+            return (time.time() - self._data.timestamp) * 1000
+
     def get_history(self) -> TelemetryHistory:
         """Get the telemetry history tracker.
 
