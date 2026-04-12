@@ -67,12 +67,24 @@ An autonomous drone system controlled by natural language via **any AI agent** (
 
 ## 📋 Quick Links
 
+### Getting Started
 | Resource | Description |
 |----------|-------------|
 | **[Phase 0.5 Summary](./PHASE_0_5_SUMMARY.md)** | **NEW** - Completion report and test results |
 | **[SITL Setup Guide](./docs/sitl_setup.md)** | **NEW** - Step-by-step installation |
 | **[Phase 0.5 Plan](./research/01-core-project/PHASE_0_5_FULL_SITL_PLAN.md)** | 3-week simulation roadmap |
 | **[Agent Connection Guide](./research/03-software-architecture/AGENT_CONNECTION_QUICKSTART.md)** | Connect Claude Code, OpenCode, or any MCP agent |
+
+### Features
+| Resource | Description |
+|----------|-------------|
+| **[Cinematic Shots](./research/cinema.md)** | **NEW** - Professional filming system for action sports |
+| **[Cinematic API](./avatar/mcp_server/tools/cinematic_shots.py)** | 15 shot templates with latency compensation |
+| **[Safety Architecture](./research/02-safety-failsafe/safety_architecture.md)** | GuardianProcess, 4-layer safety, escalation |
+
+### Reference
+| Resource | Description |
+|----------|-------------|
 | **[PRD](./research/01-core-project/project_avatar_prd.md)** | Full product requirements - Stages 1/2/3 |
 | **[Roadmap](./research/01-core-project/project_avatar_roadmap.md)** | Complete schedule: Phase 0.5 → Stage 0 → Stage 1/2/3 |
 | **[Decisions](./research/DECISIONS.md)** | Architectural decisions (Kimi, MCP, SITL) |
@@ -109,6 +121,77 @@ An autonomous drone system controlled by natural language via **any AI agent** (
 - ✅ Software "flight-ready" before parts arrive
 
 **See**: [PHASE_0_5_SUMMARY.md](./PHASE_0_5_SUMMARY.md) for complete results
+
+---
+
+## 🎬 Cinematic Shot System
+
+**Production-ready filming for action sports** - Optimized for Project Avatar's Mark4 7" hardware with latency compensation.
+
+### Features
+
+- **15 Pre-Programmed Shots**: Orbit, follow, reveal, pass-by, height-locked tracking
+- **Sport-Specific Profiles**: Snowboard (halfpipe/powder), Skate (ledge/bowl), Motocross, Trail running
+- **Latency Compensation**: LookaheadPredictor compensates for 150-250ms Pi 4 + YOLOv8 vision latency
+- **Hardware-Aware**: Respects 15 m/s max / 5 m/s comfortable speed limits
+- **PID Control**: Smooth distance maintenance with anti-windup
+
+### Available Templates
+
+| Template | Sport | Description |
+|----------|-------|-------------|
+| `orbit_close` | General | Tight 8m radius, cinematic feel |
+| `orbit_wide` | General | Wide 20m radius, context shots |
+| `follow_close` | General | 6m close follow, action |
+| `follow_wide` | General | 15m wide follow, context |
+| `reveal_hero` | General | Rising reveal shot |
+| `height_locked_jump` | Snowboard | Exact altitude tracking for jumps |
+| `snowboard_halfpipe` | Snowboard | Height-locked for transitions (8 m/s) |
+| `snowboard_powder` | Snowboard | Wide framing for powder (10 m/s) |
+| `skate_ledge_gap` | Skate | Close follow for technical tricks (6 m/s) |
+| `skate_bowl` | Skate | Height-locked for bowl transitions |
+| `motocross_jump` | Moto | High-speed jump tracking (12 m/s) |
+| `trail_running` | Running | Smooth following at runner pace (5 m/s) |
+| `fpv_dynamic` | FPV | Aggressive FPV-style motion |
+| `pass_by_low` | General | Low lateral pass, profile view |
+| `top_down_dynamic` | General | Overhead tracking |
+
+### Example Usage
+
+```python
+# Execute a cinematic orbit around subject
+await execute_cinematic_shot(
+    template_name="snowboard_halfpipe",
+    target_lat=37.7749,
+    target_lon=-122.4194,
+    target_alt_m=20.0,
+    duration_s=30.0
+)
+
+# Preview trajectory before executing
+await preview_cinematic_shot(
+    template_name="orbit_close",
+    target_lat=37.7749,
+    target_lon=-122.4194
+)
+
+# List all available templates
+templates = await list_cinematic_templates()
+```
+
+### Hardware Configuration
+
+Recommended PX4 parameters for cinematic flight:
+```
+MPC_XY_VEL_MAX = 15       # Hardware max speed
+MPC_XY_VEL_P_ACC = 1.2    # Smooth response
+MPC_JERK_AUTO = 2.0       # Jerk limiting
+MPC_ACC_HOR = 1.5         # Gentle acceleration (m/s²)
+MPC_Z_VEL_MAX_UP = 3.0
+MPC_Z_VEL_MAX_DOWN = 1.5
+```
+
+**Full Documentation**: [research/cinema.md](./research/cinema.md) - Complete technical guide
 
 ---
 
@@ -228,31 +311,60 @@ claude
 # Activate environment
 source ~/Project-Avatar/venv/bin/activate
 
-# Basic SITL connectivity test
-python tests/test_sitl_basic.py
+# Run all tests
+python -m pytest tests/ -v
+
+# Specific test suites
+python -m pytest tests/test_cinematic_shots.py -v      # Cinematic system (15 tests)
+python -m pytest tests/test_sitl_basic.py -v            # Basic SITL connectivity
+python -m pytest tests/phase05/ -v                    # Phase 0.5 integration
 
 # Full integration test (requires FIREWORKS_API_KEY)
 export FIREWORKS_API_KEY="your-key"
 python tests/test_kimi_integration.py
-
-# All Phase 0.5 tests
-python -m pytest tests/phase05/ -v
 ```
+
+**Test Coverage**:
+- **15 Cinematic Shot Tests**: Motion curves, trajectory calculation, latency compensation, PID control
+- **SITL Tests**: Basic connectivity, telemetry, flight commands
+- **Safety Tests**: GuardianProcess validation, abort scenarios
+- **Integration Tests**: End-to-end with Kimi LLM
 
 ### Available MCP Tools
 
+#### Flight Control
 | Tool | Description |
 |------|-------------|
 | `arm_and_takeoff(altitude_m)` | Arm and take off |
-| `goto_gps(lat, lon, alt_m)` | Fly to coordinates |
+| `goto_gps(lat, lon, alt_m)` | Fly to GPS coordinates |
+| `set_velocity(north, east, down)` | Velocity-based control |
 | `fly_body_offset(forward, right, up)` | Relative movement |
 | `hold_position(seconds)` | Hold current position |
 | `land()` | Land at current position |
 | `rtl()` | Return to launch |
-| `get_telemetry()` | Get position/velocity |
+
+#### Cinematic Shots
+| Tool | Description |
+|------|-------------|
+| `execute_cinematic_shot(template, lat, lon)` | Execute pre-programmed shot |
+| `list_cinematic_templates()` | Show available templates |
+| `preview_cinematic_shot(template, lat, lon)` | Preview trajectory |
+| `track_target(lat, lon, distance)` | Follow subject dynamically |
+
+#### Telemetry & Vision
+| Tool | Description |
+|------|-------------|
+| `get_telemetry()` | Get position/velocity/battery |
+| `get_status()` | Full system status |
 | `capture_frame()` | Camera snapshot |
+| `set_gimbal(pitch, yaw)` | Point camera |
+
+#### Safety & Planning
+| Tool | Description |
+|------|-------------|
 | `abort_mission(reason)` | Emergency RTL |
 | `plan_mission(request)` | Natural language planning |
+| `confirm_mission(mission_json)` | Progressive confirmation |
 
 ### Example Session
 
@@ -289,16 +401,28 @@ Agent: ✓ Holding at 10m for 5 seconds...
 
 ## 🎬 Demo Video Plan
 
-**Phase 0.5 Deliverable**: 4-5 minute screen recording
+**Phase 0.5 Deliverable**: 4-5 minute screen recording showcasing cinematic capabilities
 
 **Script**:
-1. **Intro** (0:00-0:30): Split screen showing Gazebo + Agent chat
-2. **Connection** (0:30-1:00): Agent connects, telemetry displayed
-3. **Mission** (1:00-2:30): Natural language → Kimi planning → mission execution
-4. **Exception** (2:30-3:30): Person detected → confirmation dialog → abort
-5. **Landing** (3:30-4:00): Safe RTL and landing
+1. **Intro** (0:00-0:30): Split screen showing Gazebo + Agent chat, Project Avatar overview
+2. **Connection** (0:30-1:00): Agent connects to SITL, telemetry displayed, status checks
+3. **Takeoff** (1:00-1:30): Natural language takeoff command, Gazebo visualization
+4. **Cinematic Shots** (1:30-3:00):
+   - Orbit shot around virtual subject
+   - Follow shot with smooth motion curves
+   - Height-locked tracking demonstration
+   - Shot quality metrics displayed
+5. **Safety** (3:00-3:30): Emergency abort scenario, RTL demonstration
+6. **Landing** (3:30-4:00): Smooth landing, mission summary
 
 **Recording**: QuickTime Player screen capture (Gazebo + Terminal side-by-side)
+
+**Cinematic Templates Demoed**:
+- `orbit_close` - Tight orbit with smooth velocity curves
+- `follow_dynamic` - Following with LookaheadPredictor
+- `height_locked_track` - Precise altitude maintenance
+
+See [research/cinema.md](./research/cinema.md) for full technical details.
 
 ---
 
@@ -333,7 +457,15 @@ Project-Avatar/
 ├── avatar/                    # Core implementation
 │   ├── mcp_server/           # Agent-agnostic MCP server
 │   │   ├── server.py         # Main MCP server
-│   │   └── confirmation.py   # Progressive confirmation
+│   │   ├── confirmation.py   # Progressive confirmation
+│   │   └── tools/
+│   │       ├── cinematic_shots.py    # 🎬 15 shot templates
+│   │       ├── flight_tools.py        # Basic flight commands
+│   │       ├── tracking_tools.py      # Subject tracking
+│   │       └── __init__.py
+│   ├── mav/                  # MAVSDK connection
+│   │   ├── connection_manager.py       # Singleton connection
+│   │   └── state_machine.py           # Flight state tracking
 │   ├── llm/                  # LLM integration
 │   │   └── kimi_client.py    # Fireworks AI client
 │   ├── vision/               # Vision pipeline
@@ -343,17 +475,21 @@ Project-Avatar/
 │   └── utils/                # Utilities
 │       └── flight_recorder.py
 ├── tests/                    # Test suite
+│   ├── test_cinematic_shots.py         # 🎬 15 cinematic tests
 │   ├── test_sitl_basic.py
 │   ├── test_kimi_integration.py
-│   └── test_safety_scenarios.py
+│   ├── test_safety_scenarios.py
+│   └── test_performance.py             # Performance benchmarks
 ├── PX4-Autopilot/            # PX4 SITL (submodule)
 ├── research/                 # Design documents
-│   ├── 01-core-project/      # Roadmap, PRD
+│   ├── 01-core-project/      # Roadmap, PRD, Phase 0.5 plan
 │   ├── 02-safety-failsafe/   # Safety architecture
 │   ├── 03-software-architecture/
 │   ├── 04-vision-perception/
+│   ├── cinema.md             # 🎬 Cinematic filming guide
 │   └── DECISIONS.md          # Decision audit trail
 ├── docs/                     # Documentation
+│   ├── superpowers/plans/    # Implementation plans
 │   └── sitl_setup.md         # SITL installation guide
 ├── PHASE_0_5_SUMMARY.md      # Phase 0.5 completion report
 └── README.md                 # This file
@@ -380,8 +516,23 @@ See: [Architecture Critique](./research/03-software-architecture/architecture_cr
 |--------|--------|-------------------|
 | LLM Inference | < 2s | **~1.2s** (Kimi 200 tok/s) |
 | Vision (YOLO) | 10-15 FPS | **10 FPS** @ 480p (M3) |
+| Cinematic Control | 20 Hz | **20 Hz** (velocity setpoints) |
+| Latency Compensation | 200ms | **200ms** (LookaheadPredictor) |
 | End-to-end Command | < 3s | **~2s** (test in sim) |
 | SITL Realtime Factor | 1.0 | **1.0** (Gazebo) |
+
+### Hardware Specs (Stage 1+)
+
+| Component | Specification |
+|-----------|---------------|
+| Frame | Mark4 7" |
+| Flight Controller | Pixhawk 6C Mini |
+| Companion Computer | Raspberry Pi 4 |
+| Camera | Pi Camera 3 Wide |
+| Max Speed | **15 m/s** (55 km/h) |
+| Comfortable Speed | **5 m/s** (18 km/h) |
+| Vision Latency | **150-250ms** (Pi 4 + YOLOv8-nano) |
+| Control Rate | **20 Hz** offboard heartbeat |
 
 ---
 
