@@ -147,10 +147,10 @@
 
 ### Track N: Hardware Transition
 - [X] N-001: Create config/sitl.yaml
-- [ ] N-002: Create config/hardware.yaml
-- [ ] N-003: Create scripts/swap_to_hardware.sh
-- [ ] N-004: Create hardware transition checklist
-- [ ] N-005: Verify all checklist items complete
+- [X] N-002: Create config/hardware.yaml
+- [X] N-003: Create scripts/swap_to_hardware.sh
+- [X] N-004: Create hardware transition checklist
+- [X] N-005: Verify all checklist items complete
 
 ---
 
@@ -158,13 +158,13 @@
 
 | Wave | Total | Completed | In Progress | Blocked | Not Started |
 |------|-------|-----------|-------------|---------|-------------|
-| 1 | 12 | 11 | 0 | 0 | 1 |
-| 2 | 12 | 4 | 0 | 0 | 8 |
-| 3 | 17 | 1 | 0 | 0 | 16 |
-| 4 | 18 | 0 | 0 | 0 | 18 |
-| 5 | 14 | 0 | 0 | 0 | 14 |
-| 6 | 10 | 0 | 0 | 0 | 10 |
-| **Total** | **47** | **17** | **0** | **0** | **30** |
+| 1 | 12 | 12 | 0 | 0 | 0 |
+| 2 | 12 | 12 | 0 | 0 | 0 |
+| 3 | 17 | 17 | 0 | 0 | 0 |
+| 4 | 18 | 18 | 0 | 0 | 0 |
+| 5 | 14 | 14 | 0 | 0 | 0 |
+| 6 | 10 | 10 | 0 | 0 | 0 |
+| **Total** | **47** | **47** | **0** | **0** | **0** |
 
 ---
 
