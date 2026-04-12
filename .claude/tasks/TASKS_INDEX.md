@@ -30,7 +30,7 @@
 - [X] P-001: Create .claude/ directory structure
 - [X] P-002: Create project CLAUDE.md with drone-specific instructions
 - [X] P-003: Create settings.json with drone permissions
-- [ ] P-004: Create .mcp.json for drone MCP server registration
+- [X] P-004: Create .mcp.json for drone MCP server registration
 
 ---
 
@@ -41,112 +41,112 @@
 - [X] A-006: Test MAVSDK connection to SITL (udp://:14540)
 
 ### Track C: Flight Testing
-- [ ] C-001: Create tests/test_sitl_basic.py
-- [ ] C-002: Run basic arm/takeoff/land test in SITL
+- [X] C-001: Create tests/test_sitl_basic.py
+- [X] C-002: Run basic arm/takeoff/land test in SITL
 
 ### Track D: MCP Server
 - [X] D-001: Create mcp_server/ directory and files
 - [X] D-002: Implement DroneMCPServer class skeleton (T18 - Server Wiring)
 
 ### Track S: Drone Subagents
-- [ ] S-001: Create subagents/ directory structure
-- [ ] S-002: Create Mission Planner subagent config
-- [ ] S-003: Create Safety Guardian subagent config
-- [ ] S-004: Create Vision subagent config
-- [ ] S-005: Create Logger subagent config
-- [ ] S-006: Create Preflight subagent config
+- [X] S-001: Create subagents/ directory structure
+- [X] S-002: Create Mission Planner subagent config
+- [X] S-003: Create Safety Guardian subagent config
+- [X] S-004: Create Vision subagent config
+- [X] S-005: Create Logger subagent config
+- [X] S-006: Create Preflight subagent config
 
 ---
 
 ## Wave 3: Integration (17 tasks)
 
 ### Track D: MCP Server (continued)
-- [ ] D-003: Implement arm_and_takeoff tool
-- [ ] D-004: Implement goto_gps tool
-- [ ] D-005: Implement get_telemetry tool
-- [ ] D-006: Implement land tool
-- [ ] D-007: Implement abort_mission/RTL tool
+- [X] D-003: Implement arm_and_takeoff tool
+- [X] D-004: Implement goto_gps tool
+- [X] D-005: Implement get_telemetry tool
+- [X] D-006: Implement land tool
+- [X] D-007: Implement abort_mission/RTL tool
 
 ### Track E: Agent Testing
-- [ ] E-001: Test MCP server with Claude Code connection
-- [ ] E-002: Verify all tools appear in Claude Code
+- [X] E-001: Test MCP server with Claude Code connection
+- [X] E-002: Verify all tools appear in Claude Code
 
 ### Track G: Vision Pipeline
 - [X] G-001: Create vision/ directory structure
-- [ ] G-002: Create gazebo_camera_client.py
-- [ ] G-003: Create mock_detector.py for synthetic detections
-- [ ] G-004: Test vision pipeline with mock data
+- [X] G-002: Create gazebo_camera_client.py
+- [X] G-003: Create mock_detector.py for synthetic detections
+- [X] G-004: Test vision pipeline with mock data
 
 ### Track Q: Claude Code Skills
-- [ ] Q-001: Create /fly skill definition
-- [ ] Q-002: Create /preflight skill definition
-- [ ] Q-003: Create /mission skill definition
-- [ ] Q-004: Create /abort skill definition
-- [ ] Q-005: Create /drone-status skill definition
+- [X] Q-001: Create /fly skill definition
+- [X] Q-002: Create /preflight skill definition
+- [X] Q-003: Create /mission skill definition
+- [X] Q-004: Create /abort skill definition
+- [X] Q-005: Create /drone-status skill definition
 
 ---
 
 ## Wave 4: Advanced Features (18 tasks)
 
 ### Track H: Google Maps Integration
-- [ ] H-001: Create planning/ directory structure
-- [ ] H-002: Create maps_integration.py with Google Maps API
-- [ ] H-003: Test maps planning with real location queries
+- [X] H-001: Create planning/ directory structure
+- [X] H-002: Create maps_integration.py with Google Maps API
+- [X] H-003: Test maps planning with real location queries
 
 ### Track I: Safety & Confirmation
-- [ ] I-001: Create mcp_server/confirmation.py
-- [ ] I-002: Implement progressive confirmation workflow
-- [ ] I-003: Create tests/test_safety_scenarios.py
-- [ ] I-004: Test person detection -> confirmation flow
-- [ ] I-005: Test low battery -> RTL flow
+- [X] I-001: Create mcp_server/confirmation.py
+- [X] I-002: Implement progressive confirmation workflow
+- [X] I-003: Create tests/test_safety_scenarios.py
+- [X] I-004: Test person detection -> confirmation flow
+- [X] I-005: Test low battery -> RTL flow
 
 ### Track R: Claude Code Safety Hooks
-- [ ] R-001: Create PreToolUse hook for dangerous commands
-- [ ] R-002: Create PostToolUse hook for telemetry validation
-- [ ] R-003: Create PreCompact hook for mission state preservation
-- [ ] R-004: Create Notification hook for mission events
-- [ ] R-005: Create Safety Gate hook (geofence, altitude, battery)
-- [ ] R-006: Create Confirmation Timeout hook
-- [ ] R-007: Create Vision Exception hook
-- [ ] R-008: Create Abort Cascade hook
+- [X] R-001: Create PreToolUse hook for dangerous commands
+- [X] R-002: Create PostToolUse hook for telemetry validation
+- [X] R-003: Create PreCompact hook for mission state preservation
+- [X] R-004: Create Notification hook for mission events
+- [X] R-005: Create Safety Gate hook (geofence, altitude, battery)
+- [X] R-006: Create Confirmation Timeout hook
+- [X] R-007: Create Vision Exception hook
+- [X] R-008: Create Abort Cascade hook
 
 ---
 
 ## Wave 5: Recording & Testing (14 tasks)
 
 ### Track J: Recording & Logging
-- [ ] J-001: Create utils/ directory structure
-- [ ] J-002: Create flight_recorder.py
-- [ ] J-003: Create scripts/start_demo_recording.sh
-- [ ] J-004: Test mission logging and replay
+- [X] J-001: Create utils/ directory structure
+- [X] J-002: Create flight_recorder.py
+- [X] J-003: Create scripts/start_demo_recording.sh
+- [X] J-004: Test mission logging and replay
 
 ### Track L: Testing & Benchmarks
-- [ ] L-001: Create tests/test_kimi_integration.py
-- [ ] L-002: Create tests/test_vision_pipeline.py
-- [ ] L-003: Create tests/test_confirmation.py
-- [ ] L-004: Create tests/benchmarks.py for latency validation
-- [ ] L-005: Run full test suite (pytest)
-- [ ] L-006: Verify end-to-end latency < 2 seconds
+- [X] L-001: Create tests/test_kimi_integration.py
+- [X] L-002: Create tests/test_vision_pipeline.py
+- [X] L-003: Create tests/test_confirmation.py
+- [X] L-004: Create tests/benchmarks.py for latency validation
+- [X] L-005: Run full test suite (pytest)
+- [X] L-006: Verify end-to-end latency < 2 seconds
 
 ### Track K: Demo Production
-- [ ] K-001: Write demo scenario script
-- [ ] K-002: Create screen recording setup
-- [ ] K-003: Record demo video (4-5 minutes)
-- [ ] K-004: Export and upload demo to video platform
+- [X] K-001: Write demo scenario script
+- [X] K-002: Create screen recording setup
+- [X] K-003: Record demo video (4-5 minutes)
+- [X] K-004: Export and upload demo to video platform
 
 ---
 
 ## Wave 6: Documentation & Transition (10 tasks)
 
 ### Track M: Documentation
-- [ ] M-001: Update README.md with Phase 0.5 section
-- [ ] M-002: Create PHASE_0_5_SUMMARY.md
-- [ ] M-003: Add DEC-020 to DECISIONS.md
-- [ ] M-004: Create SITL setup guide in docs/
-- [ ] M-005: Update architecture diagram
+- [X] M-001: Update README.md with Phase 0.5 section
+- [X] M-002: Create PHASE_0_5_SUMMARY.md
+- [X] M-003: Add DEC-020 to DECISIONS.md
+- [X] M-004: Create SITL setup guide in docs/
+- [X] M-005: Update architecture diagram
 
 ### Track N: Hardware Transition
-- [ ] N-001: Create config/sitl.yaml
+- [X] N-001: Create config/sitl.yaml
 - [ ] N-002: Create config/hardware.yaml
 - [ ] N-003: Create scripts/swap_to_hardware.sh
 - [ ] N-004: Create hardware transition checklist
