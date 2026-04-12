@@ -99,6 +99,10 @@ from avatar.mcp_server.tools.flight_tools import (
 )
 from avatar.mcp_server.tools.telemetry_tools import get_telemetry
 from avatar.mcp_server.tools.vision_tools import detect_objects, get_detected_objects
+from avatar.mcp_server.tools.acrobatics import (
+    front_flip, back_flip, barrel_roll, yaw_spin,
+    loop_maneuver, corkscrew, acrobatic_sequence
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -521,6 +525,121 @@ class AvatarMCPServer:
                         "required": [],
                     },
                 ),
+                # Acrobatic flight tools
+                types.Tool(
+                    name="front_flip",
+                    description=(
+                        "Execute a forward 360° flip. "
+                        "WARNING: High-energy maneuver. "
+                        "Requires minimum 15m altitude and 50% battery. "
+                        "Auto-recovers to hover after completion."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="back_flip",
+                    description=(
+                        "Execute a backward 360° flip. "
+                        "WARNING: High-energy maneuver. "
+                        "Requires minimum 15m altitude and 50% battery. "
+                        "Auto-recovers to hover after completion."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="barrel_roll",
+                    description=(
+                        "Execute a 360° barrel roll (left or right). "
+                        "WARNING: High-energy maneuver. "
+                        "Requires minimum 15m altitude and 50% battery. "
+                        "Auto-recovers to hover after completion."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "direction": {
+                                "type": "string",
+                                "description": "Direction of roll",
+                                "enum": ["left", "right"],
+                                "default": "right",
+                            }
+                        },
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="yaw_spin",
+                    description=(
+                        "Execute rapid 360° yaw rotation. "
+                        "WARNING: High-energy maneuver. "
+                        "Requires minimum 15m altitude and 50% battery. "
+                        "Auto-recovers to hover after completion."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "direction": {
+                                "type": "string",
+                                "description": "Direction of spin",
+                                "enum": ["cw", "ccw"],
+                                "default": "cw",
+                            },
+                            "rotations": {
+                                "type": "number",
+                                "description": "Number of full 360° rotations",
+                                "default": 1.0,
+                                "minimum": 0.5,
+                                "maximum": 5.0,
+                            }
+                        },
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="loop_maneuver",
+                    description=(
+                        "Execute a vertical loop (circular climb and dive). "
+                        "WARNING: High-energy maneuver. "
+                        "Requires minimum 20m altitude. "
+                        "Uses full thrust during maneuver. "
+                        "Auto-recovers to hover after completion."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                ),
+                types.Tool(
+                    name="corkscrew",
+                    description=(
+                        "Execute a corkscrew spiral (combined roll and yaw). "
+                        "WARNING: High-energy maneuver. "
+                        "Requires minimum 15m altitude and 50% battery. "
+                        "Auto-recovers to hover after completion."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "rotations": {
+                                "type": "number",
+                                "description": "Number of spiral rotations",
+                                "default": 1.0,
+                                "minimum": 0.5,
+                                "maximum": 3.0,
+                            }
+                        },
+                        "required": [],
+                    },
+                ),
             ]
 
         @self.server.call_tool()  # type: ignore[untyped-decorator]
@@ -635,6 +754,28 @@ class AvatarMCPServer:
         # Status tool
         elif name == "get_status":
             return json.dumps(self.get_status())
+
+        # Acrobatic tools
+        elif name == "front_flip":
+            return await front_flip()
+
+        elif name == "back_flip":
+            return await back_flip()
+
+        elif name == "barrel_roll":
+            return await barrel_roll(arguments.get("direction", "right"))
+
+        elif name == "yaw_spin":
+            return await yaw_spin(
+                direction=arguments.get("direction", "cw"),
+                rotations=arguments.get("rotations", 1.0)
+            )
+
+        elif name == "loop_maneuver":
+            return await loop_maneuver()
+
+        elif name == "corkscrew":
+            return await corkscrew(arguments.get("rotations", 1.0))
 
         else:
             return json.dumps({"success": False, "error": f"Unknown tool: {name}"})

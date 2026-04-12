@@ -45,6 +45,7 @@ class FlightState(Enum):
     RTL = auto()
     LANDING = auto()
     LANDED = auto()
+    ACROBATIC = auto()
     EMERGENCY = auto()
     ERROR = auto()
 
@@ -134,6 +135,7 @@ class FlightStateMachine:
             FlightState.RTL,
             FlightState.LANDING,
             FlightState.LANDED,
+            FlightState.ACROBATIC,
             FlightState.EMERGENCY,
             FlightState.ERROR,
         },
@@ -146,6 +148,7 @@ class FlightStateMachine:
             FlightState.RTL,
             FlightState.LANDING,
             FlightState.LANDED,
+            FlightState.ACROBATIC,
             FlightState.EMERGENCY,
             FlightState.ERROR,
         },
@@ -158,6 +161,7 @@ class FlightStateMachine:
             FlightState.HOLD,
             FlightState.RTL,
             FlightState.LANDING,
+            FlightState.ACROBATIC,
             FlightState.EMERGENCY,
             FlightState.ERROR,
         },
@@ -169,6 +173,7 @@ class FlightStateMachine:
             FlightState.HOLD,
             FlightState.RTL,
             FlightState.LANDING,
+            FlightState.ACROBATIC,
             FlightState.EMERGENCY,
             FlightState.ERROR,
         },
@@ -198,6 +203,16 @@ class FlightStateMachine:
         FlightState.RTL: {
             FlightState.LANDING,
             FlightState.HOVERING,
+            FlightState.HOLD,
+            FlightState.EMERGENCY,
+            FlightState.ERROR,
+        },
+        # Acrobatic flight - can enter from any flying state
+        FlightState.ACROBATIC: {
+            FlightState.HOVERING,
+            FlightState.FLYING,
+            FlightState.POSITION_CONTROL,
+            FlightState.VELOCITY_CONTROL,
             FlightState.HOLD,
             FlightState.EMERGENCY,
             FlightState.ERROR,

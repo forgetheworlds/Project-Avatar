@@ -36,6 +36,16 @@ from avatar.mcp_server.tools.telemetry_tools import (
     set_guardian,
 )
 
+from avatar.mcp_server.tools.acrobatics import (
+    front_flip,
+    back_flip,
+    barrel_roll,
+    yaw_spin,
+    loop_maneuver,
+    corkscrew,
+    acrobatic_sequence,
+)
+
 __all__ = [
     # Flight tools
     "FlightTools",
@@ -67,4 +77,12 @@ __all__ = [
     "get_connection_manager",
     "get_guardian",
     "set_guardian",
+    # Acrobatic tools
+    "front_flip",
+    "back_flip",
+    "barrel_roll",
+    "yaw_spin",
+    "loop_maneuver",
+    "corkscrew",
+    "acrobatic_sequence",
 ]
