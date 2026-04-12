@@ -1,0 +1,12 @@
+{
+  "pattern_id": "drone-mcp-server-v1",
+  "name": "Drone MCP Server Architecture",
+  "category": "backend",
+  "context": "Building MCP servers for hardware control (drones, robots, IoT). Need agent-agnostic interface with safety validation.",
+  "implementation": "1. Extend mcp.server.Server class\n2. Use stdio transport for Claude Code integration\n3. Add GuardianProcess layer for safety validation before any command\n4. Use MAVSDK async patterns for PX4/Pixhawk drones\n5. Expose tools: arm_and_takeoff, get_telemetry, land, rtl, abort_mission\n6. Import NotificationOptions from mcp.server.lowlevel.server (not mcp.types)",
+  "example": "class DroneMCPServer:\n    def __init__(self):\n        self.server = Server('drone-mcp')\n        self.guardian = GuardianProcess()\n        self._setup_handlers()\n    \n    async def run(self):\n        async with stdio_server() as (read, write):\n            await self.server.run(read, write, InitializationOptions(...))",
+  "success_rate": 1.0,
+  "source_files": ["avatar/mcp_server/server.py"],
+  "extracted_at": "2026-04-11T21:50:00Z",
+  "tags": ["mcp", "drone", "px4", "mavsdk", "safety-critical"]
+}

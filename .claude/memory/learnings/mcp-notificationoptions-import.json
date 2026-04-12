@@ -1,0 +1,13 @@
+{
+  "learning_id": "mcp-notificationoptions-fix",
+  "type": "success",
+  "title": "MCP SDK NotificationOptions Import Path",
+  "context": "Setting up MCP server and getting AttributeError: module 'mcp.types' has no attribute 'NotificationOptions'",
+  "what_happened": "MCP server initialization failed because NotificationOptions was incorrectly imported from mcp.types. The correct import is from mcp.server.lowlevel.server.",
+  "why": "MCP SDK v1.x moved NotificationOptions to the lowlevel server module. Code examples and old docs may show the wrong import path.",
+  "action": "Always import NotificationOptions from 'mcp.server.lowlevel.server', not 'mcp.types'. Check: from mcp.server.lowlevel.server import NotificationOptions",
+  "confidence": "high",
+  "extracted_at": "2026-04-11T21:50:00Z",
+  "applies_to": ["mcp>=1.0.0"],
+  "error_message": "AttributeError: module 'mcp.types' has no attribute 'NotificationOptions'"
+}

@@ -1,0 +1,12 @@
+{
+  "pattern_id": "mavsdk-offboard-v1",
+  "name": "MAVSDK Offboard Position Control",
+  "category": "backend",
+  "context": "Flying drones in SITL simulation or hardware with precise waypoint navigation using NED coordinates.",
+  "implementation": "1. Connect via udp://:14540 for SITL\n2. Wait for GPS lock (health.is_global_position_ok)\n3. Arm, then takeoff\n4. Start offboard mode: drone.offboard.start()\n5. Use PositionNedYaw(north_m, east_m, down_m, yaw_deg) - NOTE: down is negative!\n6. Sleep between waypoints to allow drone to reach position\n7. Stop offboard before landing",
+  "example": "from mavsdk.offboard import PositionNedYaw\n\nawait drone.offboard.set_position_ned(\n    PositionNedYaw(15.0, 0.0, -5.0, 0.0)  # 15m North, 5m alt, facing North\n)\nawait asyncio.sleep(4)  # Wait to reach waypoint",
+  "success_rate": 0.95,
+  "source_files": ["avatar/tests/test_sitl_basic.py"],
+  "extracted_at": "2026-04-11T21:50:00Z",
+  "tags": ["mavsdk", "offboard", "px4", "ned-coordinates", "waypoints"]
+}

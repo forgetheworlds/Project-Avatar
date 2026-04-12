@@ -1,0 +1,45 @@
+{
+  "projectName": "Project-Avatar",
+  "defaultMode": "bypassPermissions",
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(python:*)",
+      "Bash(pip:*)",
+      "Bash(make px4_sitl:*)",
+      "Read(**)",
+      "Write(**)",
+      "Edit(**)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(sudo:*)",
+      "Write(.env)",
+      "Write(**/secrets/**)"
+    ]
+  },
+  "mcpServers": {
+    "arxiv-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "nm-mcp-arxiv-search"
+      ]
+    },
+    "drone": {
+      "command": "/Users/muadhsambul/Downloads/Project-Avatar/venv/bin/python3",
+      "args": [
+        "-m",
+        "avatar.mcp_server.server"
+      ],
+      "env": {
+        "PYTHONPATH": "/Users/muadhsambul/Downloads/Project-Avatar"
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/protocols.py
+# hypothesis_version: 6.151.12
+
+[0.0, 0.5, 3.0, 5.0, 15.0, 25.0, 120.0, 500.0, -180, 180, 'udp://:14540']

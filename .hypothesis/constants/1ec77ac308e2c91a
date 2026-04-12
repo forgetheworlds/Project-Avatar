@@ -1,0 +1,4 @@
+# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/vision/gazebo_camera_client.py
+# hypothesis_version: 6.151.12
+
+[255, 256, 480, 640, 'RGB']

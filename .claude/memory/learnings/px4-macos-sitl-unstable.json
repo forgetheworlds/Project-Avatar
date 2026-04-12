@@ -1,0 +1,13 @@
+{
+  "learning_id": "px4-macos-gazebo-fix",
+  "type": "success",
+  "title": "PX4 SITL on macOS M-Series - Bypass Make System",
+  "context": "Running 'make px4_sitl gz_x500' on macOS M1/M2/M3 fails or Gazebo is unstable (per PX4 docs: 'UNSTABLE')",
+  "what_happened": "Direct PX4 binary execution works reliably: PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4. This bypasses the make build system issues.",
+  "why": "The make system has additional dependencies and environment setup that can fail on macOS ARM. The binary directly starts the SITL with Gazebo.",
+  "action": "Use direct binary execution instead of make:\n1. cd PX4-Autopilot\n2. PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4\n3. Gazebo will auto-start with the x500 model",
+  "confidence": "high",
+  "extracted_at": "2026-04-11T21:50:00Z",
+  "applies_to": ["macOS", "M1", "M2", "M3", "Apple Silicon", "PX4"],
+  "source": "PX4 docs list Gazebo on macOS as UNSTABLE - but this workaround works"
+}
