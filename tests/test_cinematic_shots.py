@@ -381,6 +381,92 @@ async def test_execute_cinematic_shot_unknown_template():
     print("✓ execute_cinematic_shot unknown template handling passed")
 
 
+def test_lookahead_predictor():
+    """Test LookaheadPredictor for latency compensation."""
+    from avatar.mcp_server.tools.cinematic_shots import LookaheadPredictor, PREDICTION_HORIZON_S
+
+    predictor = LookaheadPredictor(horizon_s=0.2)
+
+    # Initial update at origin
+    predictor.update(lat=0.0, lon=0.0, alt_m=10.0, vel_north=5.0, vel_east=0.0, vel_up=0.0)
+
+    # Predict 0.2s in the future
+    pred_lat, pred_lon, pred_alt = predictor.predict_future(0.2)
+
+    # Should have moved north by ~1m (5 m/s * 0.2s = 1m)
+    # 1m / 111320 m/deg ≈ 0.000009 degrees
+    assert pred_lat > 0.0, "Predicted latitude should be north of origin"
+    assert abs(pred_lon - 0.0) < 0.000001, "Predicted longitude should be unchanged"
+    assert abs(pred_alt - 10.0) < 0.01, "Predicted altitude should be unchanged"
+
+    print(f"✓ LookaheadPredictor: horizon={PREDICTION_HORIZON_S}s, predicted movement at 5 m/s")
+
+
+def test_pid_controller():
+    """Test PIDController for distance maintenance."""
+    from avatar.mcp_server.tools.cinematic_shots import PIDController
+
+    pid = PIDController(kp=0.8, ki=0.1, kd=0.2, output_limit=5.0)
+
+    # Test error response
+    output1 = pid.update(error=2.0)
+    assert output1 > 0, "PID should output positive for positive error"
+    assert output1 <= 5.0, "PID output should respect limit"
+
+    # Test response to smaller error (proportional term should be smaller)
+    # Reset to avoid integral windup affecting test
+    pid.reset()
+    output2_small = pid.update(error=1.0)
+    # For P-only (kp=0.8): 0.8*2.0=1.6 vs 0.8*1.0=0.8, so smaller error -> smaller output
+    assert output2_small < output1, "Smaller error should produce smaller correction"
+
+    # Test negative error (overshoot correction)
+    pid.reset()
+    output_neg = pid.update(error=-2.0)
+    assert output_neg < 0, "Negative error should produce negative output"
+    assert abs(output_neg) == output1, "Same magnitude error should produce same magnitude output"
+
+    # Test reset clears state
+    pid.reset()
+    output_after_reset = pid.update(error=2.0)
+    assert abs(output_after_reset - output1) < 0.01, "After reset, same error should give same output"
+
+    print(f"✓ PIDController: kp=0.8, ki=0.1, kd=0.2, responds to error correctly")
+
+
+def test_sport_profiles():
+    """Test sport-specific motion profiles."""
+    from avatar.mcp_server.tools.cinematic_shots import SPORT_PROFILES, CINEMATIC_TEMPLATES, HARDWARE_MAX_SPEED_M_S
+
+    # Verify all sport profiles exist
+    expected_profiles = [
+        "snowboard_halfpipe", "snowboard_powder",
+        "skate_ledge", "skate_bowl",
+        "motocross_jump", "trail_running"
+    ]
+
+    for profile_name in expected_profiles:
+        assert profile_name in SPORT_PROFILES, f"Missing sport profile: {profile_name}"
+        profile = SPORT_PROFILES[profile_name]
+        assert profile.max_speed_m_s <= HARDWARE_MAX_SPEED_M_S, f"{profile_name} speed exceeds hardware limit"
+
+    # Verify templates use sport profiles
+    assert "snowboard_halfpipe" in CINEMATIC_TEMPLATES, "Missing snowboard_halfpipe template"
+    assert "skate_ledge_gap" in CINEMATIC_TEMPLATES, "Missing skate_ledge_gap template"
+    assert "skate_bowl" in CINEMATIC_TEMPLATES, "Missing skate_bowl template"
+    assert "motocross_jump" in CINEMATIC_TEMPLATES, "Missing motocross_jump template"
+    assert "trail_running" in CINEMATIC_TEMPLATES, "Missing trail_running template"
+
+    # Check hardware-aware speeds
+    snowboard_template = CINEMATIC_TEMPLATES["snowboard_halfpipe"]
+    assert snowboard_template.speed_m_s <= 8.0, "Snowboard speed should be conservative"
+
+    moto_template = CINEMATIC_TEMPLATES["motocross_jump"]
+    assert moto_template.speed_m_s <= 12.0, "Motocross speed should be within hardware limit"
+
+    print(f"✓ Sport profiles: {len(SPORT_PROFILES)} profiles, hardware-aware limits verified")
+
+
 async def main():
     """Run all cinematic shot tests."""
     print("""
@@ -402,6 +488,9 @@ async def main():
         ("Preview shot", test_preview_cinematic_shot),
         ("Preview unknown template", test_preview_unknown_template),
         ("Execute unknown template", test_execute_cinematic_shot_unknown_template),
+        ("LookaheadPredictor", test_lookahead_predictor),
+        ("PIDController", test_pid_controller),
+        ("Sport profiles", test_sport_profiles),
     ]
 
     passed = 0
