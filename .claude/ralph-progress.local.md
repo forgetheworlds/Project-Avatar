@@ -1,28 +1,34 @@
-# Ralph Loop - MCP Server Redesign
+# Ralph Loop - MCP Standards Compliance Fixes
 
 ## Goal
-Implement comprehensive MCP Server Redesign with 4-layer safety architecture, persistent singleton connections, 20Hz heartbeat, and complete flight control tools ✅
+Fix critical MCP protocol compliance gaps to make AvatarMCPServer production-ready for external AI agents
 
-## Completion Evidence
-- All 20/20 tasks implemented and verified
-- 497 tests passing (core, mav, mcp_server, tools, e2e, property)
-- mypy strict clean
-- All phases verified through subagent execution
-- Code committed: b2df716, 847c2c9, 5553bfd, cac4374, 23a469f, a837b3b
-- MCP Standards Audit completed (docs/analysis/mcp_standards_audit.md)
+## Previous Work: MCP Server Redesign ✅ COMPLETE
+- 20/20 tasks implemented
+- 497 tests passing
+- All code committed: bf8f459, af27a40, c2b6f64, a837b3b, 23a469f, cac4374, 5553bfd, 847c2c9, b2df716
+- Plan archived: 2026-04-11-mcp-server-redesign.COMPLETED.md
 
-## Phases Completed
-- ✅ Brainstorm - Requirements clarified
-- ✅ Plan - Implementation plan created (2026-04-11-mcp-server-redesign.md)
-- ✅ Work - 20 tasks executed via subagent-driven-development
-- ✅ Test - 497 tests passing
-- ✅ Review - Code quality verified
-- ✅ Video - Demo scenarios documented
-- ✅ Simplify - Code refined
+## Current Work: MCP Compliance
+**Plan:** docs/superpowers/plans/2026-04-12-mcp-compliance-fixes.md
+**Status:** IN PROGRESS
 
-## Plan Status
-**File:** docs/superpowers/plans/2026-04-11-mcp-server-redesign.md  
-**Status:** ✅ ARCHIVED - All 20 tasks complete  
-**Last Updated:** 2026-04-12
+## Critical Issues to Fix
+1. Missing tool annotations (destructiveHint, readOnlyHint, idempotentHint)
+2. No output schemas for structured responses
+3. Missing error codes with isError flag
+4. Resource inefficiency (FlightTools recreated per call)
 
-DONE
+## Phases
+- [ ] Brainstorm - Requirements from MCP standards audit
+- [ ] Plan - Implementation plan created ✅
+- [ ] Work - Execute compliance fixes
+- [ ] Test - Verify MCP Inspector validation
+- [ ] Review - Code quality check
+- [ ] Done - Production ready
+
+## Next Action
+Execute compliance fixes plan (20-27 hours estimated)
+
+## Start Date
+2026-04-12
