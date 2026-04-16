@@ -126,8 +126,7 @@ exclude_dirs:
 # ============================================================================
 # Specific paths to include (if empty, includes all except excluded)
 include:
-  - "./src/**/*.py"
-  - "./drone/**/*.py"
+  - "./avatar/**/*.py"
 
 # ============================================================================
 # FILE PATTERNS

@@ -7,7 +7,7 @@ name = "drone-control-system"
 version = "1.0.0"
 description = "Safety-critical drone control software"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = {text = "Proprietary"}
 authors = [
     {name = "Drone Safety Team", email = "safety@drone-project.example"}
@@ -18,7 +18,6 @@ classifiers = [
     "Intended Audience :: Manufacturing",
     "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
     "Topic :: Security",
@@ -97,7 +96,7 @@ Issues = "https://github.com/drone-project/control-system/issues"
 # MYPY CONFIGURATION - Strict Type Checking
 # ============================================================================
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -150,7 +149,7 @@ disable_error_code = ["attr-defined", "no-untyped-call", "no-any-return"]
 [[tool.mypy.overrides]]
 module = [
     "avatar.mav.connection_manager",
-    "avatar.mav.connection",
+    "avatar.mav.connection_config",
     "avatar.mav.px4_parameters",
     "avatar.mcp_server.tools.flight_tools",
     "avatar.mav.guardian_async",
@@ -166,7 +165,7 @@ disable_error_code = ["attr-defined", "no-untyped-call", "comparison-overlap", "
 # Per-file overrides for test files - disable strict typing for tests
 [[tool.mypy.overrides]]
 module = [
-    "avatar.tests.*",
+    "tests.*",
 ]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
@@ -177,7 +176,7 @@ disable_error_code = ["attr-defined", "no-untyped-call", "no-any-return", "impor
 # PYLINT CONFIGURATION - Safety-Focused Analysis
 # ============================================================================
 [tool.pylint.main]
-py-version = "3.11"
+py-version = "3.12"
 ignore-patterns = ["^\\."]
 load-plugins = [
     "pylint.extensions.check_elif",
@@ -280,7 +279,7 @@ exclude_dirs = ["tests", "venv", ".venv", "__pycache__", "build", "dist"]
 # ============================================================================
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["avatar/tests", "tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -299,6 +298,7 @@ markers = [
     "property: marks tests as property-based tests",
     "safety_critical: marks safety-critical tests",
     "hardware_in_loop: marks tests requiring hardware",
+    "sitl: marks tests that require PX4 SITL and --run-sitl",
 ]
 asyncio_mode = "auto"
 timeout = 300  # 5 minutes max per test
@@ -394,7 +394,7 @@ order_by_type = false
 # ============================================================================
 [tool.black]
 line-length = 100
-target-version = ["py311", "py312"]
+target-version = ["py312"]
 include = "\\.pyi?$"
 extend-exclude = '''
 /(
@@ -418,7 +418,7 @@ preview = false
 # RUFF CONFIGURATION - Fast Python Linter
 # ============================================================================
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 select = [
     "E",   # pycodestyle errors

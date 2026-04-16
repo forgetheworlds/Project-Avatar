@@ -58,14 +58,17 @@ import math
 import time
 from dataclasses import dataclass
 from math import atan2, cos, radians, sin, sqrt
-from typing import Any, Optional, Tuple, Dict, List
+from typing import Any, Optional, Tuple, Dict, List, TYPE_CHECKING
 
 # Internal imports - these provide the safety and connection layers
-from avatar.mav.connection import DroneConnection, ConnectionConfig
+from avatar.mav.connection_config import ConnectionConfig
 from avatar.mav.guardian import GuardianProcess, HardLimits
 from avatar.mav.state_machine import FlightStateMachine, FlightState
 from avatar.mav.connection_manager import ConnectionManager
 from avatar.mav.offboard_streamer import OffboardVelocityStreamer
+
+if TYPE_CHECKING:
+    from avatar.mcp_server.compat import DroneConnection
 
 # MAVSDK imports with fallback for testing environments
 # This allows the module to be imported even when MAVSDK is not installed
@@ -403,7 +406,7 @@ class FlightTools:
         self.hard_limits = hard_limits or HardLimits()
         self.guardian = GuardianProcess(self.hard_limits)
         self.state_machine = state_machine or FlightStateMachine()
-        self._drone: Optional[DroneConnection] = None
+        self._drone: Optional["DroneConnection"] = None
         self._connected = False
         self._heartbeat_task: Optional[asyncio.Task[None]] = None
         self.offboard_streamer = OffboardVelocityStreamer(rate_hz=20.0)
@@ -448,6 +451,7 @@ class FlightTools:
 
             # Wrap MAVSDK System in DroneConnection for compatibility
             if self._drone is None:
+                from avatar.mcp_server.compat import DroneConnection
                 connection_config = ConnectionConfig(
                     system_address=self.config.system_address,
                     max_retries=self.config.max_retries,

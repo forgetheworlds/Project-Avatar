@@ -335,6 +335,757 @@ def _create_mock_velocity_ned_yaw(
 
 
 # ==============================================================================
+# TOOL DEFINITIONS - Module-level function for introspection
+# ==============================================================================
+
+def avatar_mcp_tool_definitions() -> List[Any]:
+    """Return the list of all MCP tool definitions for the Avatar server.
+
+    This function is module-level to allow introspection by validation scripts
+    without requiring a server instance. It returns the complete list of
+    types.Tool objects defining all available drone control capabilities.
+
+    Returns:
+        List of types.Tool objects with name, description, and inputSchema.
+
+    Example:
+        tools = avatar_mcp_tool_definitions()
+        print(f"Server exposes {len(tools)} tools")
+        for tool in tools:
+            print(f"  - {tool.name}")
+    """
+    return [
+        # ==============================================================================
+        # FLIGHT CONTROL TOOLS - Basic flight operations
+        # ==============================================================================
+        types.Tool(
+            name="arm_and_takeoff",
+            description=(
+                "Arm the drone and takeoff to a specified altitude. "
+                "The drone must be connected and have GPS lock before calling. "
+                "Returns success/failure status and altitude reached. "
+                "Default altitude: 10m. Max: 120m (FAA Part 107 limit)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "altitude_m": {
+                        "type": "number",
+                        "description": "Target takeoff altitude in meters",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 120,
+                    }
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="get_telemetry",
+            description=(
+                "Get current drone telemetry from cache (fast, non-blocking). "
+                "Returns position, velocity, attitude, battery, flight mode. "
+                "Cache refreshes every 100ms. Check is_stale field."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="land",
+            description=(
+                "Command the drone to land at its current position. "
+                "The drone will descend vertically and disarm after landing. "
+                "Safe to call from any flying state."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="rtl",
+            description=(
+                "Return to Launch (RTL) - fly back to home position and land. "
+                "Use this for failsafe recovery or mission completion. "
+                "Requires home position to be set."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="abort_mission",
+            description=(
+                "Abort the current mission and make the drone hover in place. "
+                "Use for emergency stops or when you need to pause operations. "
+                "The drone will remain hovering until a new command is issued."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for abort (for logging)",
+                    }
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="goto_gps",
+            description=(
+                "Navigate to GPS coordinates. "
+                "Drone must be in flying state (HOVERING, FLYING, etc.). "
+                "Will transition to POSITION_CONTROL state."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lat": {
+                        "type": "number",
+                        "description": "Target latitude in degrees (-90 to 90)",
+                    },
+                    "lon": {
+                        "type": "number",
+                        "description": "Target longitude in degrees (-180 to 180)",
+                    },
+                    "alt_m": {
+                        "type": "number",
+                        "description": "Target altitude in meters (0 = current altitude)",
+                        "default": 0,
+                    },
+                    "speed_ms": {
+                        "type": "number",
+                        "description": "Travel speed in m/s",
+                        "default": 5.0,
+                        "minimum": 0.1,
+                        "maximum": 15.0,
+                    },
+                },
+                "required": ["lat", "lon"],
+            },
+        ),
+        types.Tool(
+            name="fly_body_offset",
+            description=(
+                "Fly to body-relative offset position. "
+                "Moves forward/back, left/right, up/down relative to current heading. "
+                "Body frame: +forward=X, +right=Y. "
+                "Requires flying state. Transitions to POSITION_CONTROL."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "forward_m": {
+                        "type": "number",
+                        "description": "Distance forward (positive) or back (negative) in meters",
+                        "default": 0.0,
+                    },
+                    "right_m": {
+                        "type": "number",
+                        "description": "Distance right (positive) or left (negative) in meters",
+                        "default": 0.0,
+                    },
+                    "up_m": {
+                        "type": "number",
+                        "description": "Distance up (positive) or down (negative) in meters",
+                        "default": 0.0,
+                    },
+                    "yaw_align": {
+                        "type": "boolean",
+                        "description": "If True, align yaw to movement direction",
+                        "default": False,
+                    },
+                    "speed_m_s": {
+                        "type": "number",
+                        "description": "Approach speed in m/s",
+                        "default": 5.0,
+                        "minimum": 0.1,
+                        "maximum": 15.0,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="set_velocity",
+            description=(
+                "Set velocity setpoint in NED frame (offboard mode). "
+                "CRITICAL: Must maintain 20Hz stream or PX4 triggers failsafe. "
+                "Max horizontal: 15 m/s. Max vertical: 3 m/s. "
+                "Requires flying state. Transitions to VELOCITY_CONTROL."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "north_m_s": {
+                        "type": "number",
+                        "description": "Velocity north (positive) / south (negative) in m/s",
+                        "default": 0.0,
+                    },
+                    "east_m_s": {
+                        "type": "number",
+                        "description": "Velocity east (positive) / west (negative) in m/s",
+                        "default": 0.0,
+                    },
+                    "down_m_s": {
+                        "type": "number",
+                        "description": "Velocity down (positive) / up (negative) in m/s",
+                        "default": 0.0,
+                    },
+                    "yaw_deg": {
+                        "type": "number",
+                        "description": "Absolute yaw angle in degrees (0=north, 90=east)",
+                        "default": 0.0,
+                    },
+                    "duration_s": {
+                        "type": "number",
+                        "description": "Duration to maintain setpoint in seconds",
+                        "default": 1.0,
+                        "minimum": 0.1,
+                        "maximum": 10.0,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="hold",
+            description=(
+                "Hold position with monitoring. "
+                "Enters HOVERING state and monitors for position drift. "
+                "Optionally auto-triggers RTL if drift exceeds tolerance."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "duration_s": {
+                        "type": "number",
+                        "description": "Duration to hold position in seconds",
+                        "default": 5.0,
+                        "minimum": 1.0,
+                        "maximum": 60.0,
+                    },
+                    "position_tolerance_m": {
+                        "type": "number",
+                        "description": "Allowed position drift in meters",
+                        "default": 1.0,
+                        "minimum": 0.1,
+                        "maximum": 10.0,
+                    },
+                    "auto_rtl_on_drift": {
+                        "type": "boolean",
+                        "description": "If True, RTL when drift exceeds tolerance",
+                        "default": False,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        # ==============================================================================
+        # VISION TOOLS - Object detection and tracking
+        # ==============================================================================
+        types.Tool(
+            name="detect_objects",
+            description=(
+                "Detect objects in camera frame using YOLO. "
+                "Returns detected objects with bounding boxes and confidence."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum detection confidence (0.0-1.0)",
+                        "default": 0.5,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="get_detected_objects",
+            description=(
+                "Get currently detected objects from cache. "
+                "Returns last detection results without running new inference."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        # ==============================================================================
+        # STATUS TOOL - Server health and diagnostics
+        # ==============================================================================
+        types.Tool(
+            name="get_status",
+            description=(
+                "Get comprehensive server status. "
+                "Returns connection state, flight state, guardian status, "
+                "telemetry cache metrics, and heartbeat metrics."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        # ==============================================================================
+        # ACROBATIC FLIGHT TOOLS - Advanced maneuvers
+        # ==============================================================================
+        types.Tool(
+            name="front_flip",
+            description=(
+                "Execute a forward 360 deg flip. "
+                "WARNING: High-energy maneuver. "
+                "Requires minimum 15m altitude and 50% battery. "
+                "Auto-recovers to hover after completion."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="back_flip",
+            description=(
+                "Execute a backward 360 deg flip. "
+                "WARNING: High-energy maneuver. "
+                "Requires minimum 15m altitude and 50% battery. "
+                "Auto-recovers to hover after completion."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="barrel_roll",
+            description=(
+                "Execute a 360 deg barrel roll (left or right). "
+                "WARNING: High-energy maneuver. "
+                "Requires minimum 15m altitude and 50% battery. "
+                "Auto-recovers to hover after completion."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "Direction of roll",
+                        "enum": ["left", "right"],
+                        "default": "right",
+                    }
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="yaw_spin",
+            description=(
+                "Execute rapid 360 deg yaw rotation. "
+                "WARNING: High-energy maneuver. "
+                "Requires minimum 15m altitude and 50% battery. "
+                "Auto-recovers to hover after completion."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "Direction of spin",
+                        "enum": ["cw", "ccw"],
+                        "default": "cw",
+                    },
+                    "rotations": {
+                        "type": "number",
+                        "description": "Number of full 360 deg rotations",
+                        "default": 1.0,
+                        "minimum": 0.5,
+                        "maximum": 5.0,
+                    }
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="loop_maneuver",
+            description=(
+                "Execute a vertical loop (circular climb and dive). "
+                "WARNING: High-energy maneuver. "
+                "Requires minimum 20m altitude. "
+                "Uses full thrust during maneuver. "
+                "Auto-recovers to hover after completion."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="corkscrew",
+            description=(
+                "Execute a corkscrew spiral (combined roll and yaw). "
+                "WARNING: High-energy maneuver. "
+                "Requires minimum 15m altitude and 50% battery. "
+                "Auto-recovers to hover after completion."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "rotations": {
+                        "type": "number",
+                        "description": "Number of spiral rotations",
+                        "default": 1.0,
+                        "minimum": 0.5,
+                        "maximum": 3.0,
+                    }
+                },
+                "required": [],
+            },
+        ),
+        # ==============================================================================
+        # TRACKING AND CAMERA CONTROL TOOLS
+        # ==============================================================================
+        types.Tool(
+            name="set_gimbal",
+            description=(
+                "Control camera gimbal angles independently of drone. "
+                "Set pitch (-90 deg=down, 0 deg=level, 30 deg=up), yaw (-180 deg to 180 deg), "
+                "and roll (-45 deg to 45 deg). "
+                "Useful for looking at targets while flying."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pitch_deg": {
+                        "type": "number",
+                        "description": "Pitch angle: -90=down, 0=level, 30=up",
+                        "default": -45.0,
+                        "minimum": -90.0,
+                        "maximum": 30.0,
+                    },
+                    "yaw_deg": {
+                        "type": "number",
+                        "description": "Yaw angle relative to drone (-180 to 180)",
+                        "default": 0.0,
+                        "minimum": -180.0,
+                        "maximum": 180.0,
+                    },
+                    "roll_deg": {
+                        "type": "number",
+                        "description": "Roll angle (-45 to 45)",
+                        "default": 0.0,
+                        "minimum": -45.0,
+                        "maximum": 45.0,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="point_camera_at",
+            description=(
+                "Point camera at specific GPS coordinates. "
+                "Calculates gimbal angles automatically. "
+                "Drone stays in position, only camera moves."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lat": {
+                        "type": "number",
+                        "description": "Target latitude",
+                    },
+                    "lon": {
+                        "type": "number",
+                        "description": "Target longitude",
+                    },
+                    "alt_m": {
+                        "type": "number",
+                        "description": "Target altitude (optional)",
+                    },
+                },
+                "required": ["lat", "lon"],
+            },
+        ),
+        types.Tool(
+            name="orbit_target",
+            description=(
+                "Circle around a target while keeping camera locked. "
+                "Flies in a circle around target coordinates while "
+                "continuously pointing camera at center. "
+                "Perfect for cinematic shots or surveillance."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target_lat": {
+                        "type": "number",
+                        "description": "Target latitude",
+                    },
+                    "target_lon": {
+                        "type": "number",
+                        "description": "Target longitude",
+                    },
+                    "target_alt_m": {
+                        "type": "number",
+                        "description": "Target altitude",
+                    },
+                    "radius_m": {
+                        "type": "number",
+                        "description": "Orbit radius in meters",
+                        "default": 10.0,
+                        "minimum": 5.0,
+                        "maximum": 100.0,
+                    },
+                    "speed_m_s": {
+                        "type": "number",
+                        "description": "Orbit speed",
+                        "default": 3.0,
+                        "minimum": 1.0,
+                        "maximum": 10.0,
+                    },
+                    "altitude_offset_m": {
+                        "type": "number",
+                        "description": "Height above target",
+                        "default": 15.0,
+                        "minimum": 10.0,
+                        "maximum": 50.0,
+                    },
+                    "clockwise": {
+                        "type": "boolean",
+                        "description": "Orbit direction",
+                        "default": True,
+                    },
+                    "duration_s": {
+                        "type": "number",
+                        "description": "Orbit duration",
+                        "default": 30.0,
+                        "minimum": 5.0,
+                        "maximum": 300.0,
+                    },
+                    "keep_camera_locked": {
+                        "type": "boolean",
+                        "description": "Keep camera on target",
+                        "default": True,
+                    },
+                },
+                "required": ["target_lat", "target_lon"],
+            },
+        ),
+        types.Tool(
+            name="track_target",
+            description=(
+                "Track and follow a moving target. "
+                "Follows targets like snowboarders, cars, or people "
+                "while maintaining camera lock. Supports predictive tracking."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target_lat": {
+                        "type": "number",
+                        "description": "Initial target latitude",
+                    },
+                    "target_lon": {
+                        "type": "number",
+                        "description": "Initial target longitude",
+                    },
+                    "target_velocity_north": {
+                        "type": "number",
+                        "description": "Target velocity north (m/s)",
+                        "default": 0.0,
+                    },
+                    "target_velocity_east": {
+                        "type": "number",
+                        "description": "Target velocity east (m/s)",
+                        "default": 0.0,
+                    },
+                    "follow_distance_m": {
+                        "type": "number",
+                        "description": "Distance behind target",
+                        "default": 8.0,
+                        "minimum": 5.0,
+                        "maximum": 30.0,
+                    },
+                    "altitude_m": {
+                        "type": "number",
+                        "description": "Tracking altitude",
+                        "default": 20.0,
+                        "minimum": 15.0,
+                        "maximum": 50.0,
+                    },
+                    "speed_m_s": {
+                        "type": "number",
+                        "description": "Maximum tracking speed",
+                        "default": 8.0,
+                        "minimum": 3.0,
+                        "maximum": 15.0,
+                    },
+                    "duration_s": {
+                        "type": "number",
+                        "description": "Tracking duration",
+                        "default": 60.0,
+                        "maximum": 300.0,
+                    },
+                    "predictive": {
+                        "type": "boolean",
+                        "description": "Use velocity prediction",
+                        "default": True,
+                    },
+                    "tracking_mode": {
+                        "type": "string",
+                        "description": "Position relative to target",
+                        "enum": ["follow", "lead", "side"],
+                        "default": "follow",
+                    },
+                },
+                "required": ["target_lat", "target_lon"],
+            },
+        ),
+        types.Tool(
+            name="spiral_search",
+            description=(
+                "Perform expanding spiral search pattern. "
+                "Flies outward spiral while climbing, keeping camera "
+                "pointed at center. Useful for search and rescue."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "center_lat": {
+                        "type": "number",
+                        "description": "Center latitude",
+                    },
+                    "center_lon": {
+                        "type": "number",
+                        "description": "Center longitude",
+                    },
+                    "start_altitude_m": {
+                        "type": "number",
+                        "description": "Starting altitude",
+                        "default": 20.0,
+                    },
+                    "max_radius_m": {
+                        "type": "number",
+                        "description": "Maximum spiral radius",
+                        "default": 100.0,
+                    },
+                    "max_altitude_m": {
+                        "type": "number",
+                        "description": "Maximum altitude",
+                        "default": 50.0,
+                    },
+                    "rotations": {
+                        "type": "number",
+                        "description": "Number of rotations",
+                        "default": 3.0,
+                    },
+                    "speed_m_s": {
+                        "type": "number",
+                        "description": "Flight speed",
+                        "default": 5.0,
+                    },
+                },
+                "required": ["center_lat", "center_lon"],
+            },
+        ),
+        # ==============================================================================
+        # CINEMATIC SHOT TOOLS - Pre-programmed professional shots
+        # ==============================================================================
+        types.Tool(
+            name="execute_cinematic_shot",
+            description=(
+                "Execute a pre-programmed cinematic shot with smooth motion curves. "
+                "Professional-quality filming for action sports. "
+                "Templates: orbit_close, orbit_wide, follow_close, follow_wide, "
+                "reveal_hero, pass_by_low, top_down_dynamic, height_locked_jump, "
+                "fpv_dynamic, snowboard_halfpipe, skate_ledge_gap. "
+                "Features height-locked tracking (0.2m) for tricks at specific heights."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "template_name": {
+                        "type": "string",
+                        "description": "Shot template name (e.g., 'orbit_close', 'follow_close')",
+                    },
+                    "target_lat": {
+                        "type": "number",
+                        "description": "Target/subject latitude",
+                    },
+                    "target_lon": {
+                        "type": "number",
+                        "description": "Target/subject longitude",
+                    },
+                    "target_alt_m": {
+                        "type": "number",
+                        "description": "Target altitude (optional, uses current if not set)",
+                    },
+                    "duration_s": {
+                        "type": "number",
+                        "description": "Override shot duration (optional)",
+                    },
+                    "custom_params": {
+                        "type": "object",
+                        "description": "Custom parameter overrides (optional)",
+                    },
+                },
+                "required": ["template_name", "target_lat", "target_lon"],
+            },
+        ),
+        types.Tool(
+            name="list_cinematic_templates",
+            description=(
+                "List all available cinematic shot templates with descriptions. "
+                "Use this to discover available shots before executing."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="preview_cinematic_shot",
+            description=(
+                "Preview a cinematic shot trajectory without executing. "
+                "Shows planned path, waypoints, and estimated duration."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "template_name": {
+                        "type": "string",
+                        "description": "Shot template name",
+                    },
+                    "target_lat": {
+                        "type": "number",
+                        "description": "Target latitude",
+                    },
+                    "target_lon": {
+                        "type": "number",
+                        "description": "Target longitude",
+                    },
+                },
+                "required": ["template_name", "target_lat", "target_lon"],
+            },
+        ),
+    ]
+
+
+# ==============================================================================
 # CONFIGURATION DATACLASS
 # ==============================================================================
 
@@ -572,742 +1323,7 @@ class AvatarMCPServer:
                 - description: Human-readable explanation for LLM
                 - inputSchema: JSON Schema for parameter validation
             """
-            return [
-                # ==============================================================================
-                # FLIGHT CONTROL TOOLS - Basic flight operations
-                # ==============================================================================
-
-                types.Tool(
-                    name="arm_and_takeoff",
-                    description=(
-                        "Arm the drone and takeoff to a specified altitude. "
-                        "The drone must be connected and have GPS lock before calling. "
-                        "Returns success/failure status and altitude reached. "
-                        "Default altitude: 10m. Max: 120m (FAA Part 107 limit)."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "altitude_m": {
-                                "type": "number",
-                                "description": "Target takeoff altitude in meters",
-                                "default": 10,
-                                "minimum": 1,
-                                "maximum": 120,
-                            }
-                        },
-                        "required": [],  # All parameters have defaults
-                    },
-                ),
-                types.Tool(
-                    name="get_telemetry",
-                    description=(
-                        "Get current drone telemetry from cache (fast, non-blocking). "
-                        "Returns position, velocity, attitude, battery, flight mode. "
-                        "Cache refreshes every 100ms. Check is_stale field."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="land",
-                    description=(
-                        "Command the drone to land at its current position. "
-                        "The drone will descend vertically and disarm after landing. "
-                        "Safe to call from any flying state."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="rtl",
-                    description=(
-                        "Return to Launch (RTL) - fly back to home position and land. "
-                        "Use this for failsafe recovery or mission completion. "
-                        "Requires home position to be set."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="abort_mission",
-                    description=(
-                        "Abort the current mission and make the drone hover in place. "
-                        "Use for emergency stops or when you need to pause operations. "
-                        "The drone will remain hovering until a new command is issued."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "reason": {
-                                "type": "string",
-                                "description": "Optional reason for abort (for logging)",
-                            }
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="goto_gps",
-                    description=(
-                        "Navigate to GPS coordinates. "
-                        "Drone must be in flying state (HOVERING, FLYING, etc.). "
-                        "Will transition to POSITION_CONTROL state."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "lat": {
-                                "type": "number",
-                                "description": "Target latitude in degrees (-90 to 90)",
-                            },
-                            "lon": {
-                                "type": "number",
-                                "description": "Target longitude in degrees (-180 to 180)",
-                            },
-                            "alt_m": {
-                                "type": "number",
-                                "description": "Target altitude in meters (0 = current altitude)",
-                                "default": 0,
-                            },
-                            "speed_ms": {
-                                "type": "number",
-                                "description": "Travel speed in m/s",
-                                "default": 5.0,
-                                "minimum": 0.1,
-                                "maximum": 15.0,
-                            },
-                        },
-                        "required": ["lat", "lon"],  # Must provide coordinates
-                    },
-                ),
-                types.Tool(
-                    name="fly_body_offset",
-                    description=(
-                        "Fly to body-relative offset position. "
-                        "Moves forward/back, left/right, up/down relative to current heading. "
-                        "Body frame: +forward=X, +right=Y. "
-                        "Requires flying state. Transitions to POSITION_CONTROL."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "forward_m": {
-                                "type": "number",
-                                "description": "Distance forward (positive) or back (negative) in meters",
-                                "default": 0.0,
-                            },
-                            "right_m": {
-                                "type": "number",
-                                "description": "Distance right (positive) or left (negative) in meters",
-                                "default": 0.0,
-                            },
-                            "up_m": {
-                                "type": "number",
-                                "description": "Distance up (positive) or down (negative) in meters",
-                                "default": 0.0,
-                            },
-                            "yaw_align": {
-                                "type": "boolean",
-                                "description": "If True, align yaw to movement direction",
-                                "default": False,
-                            },
-                            "speed_m_s": {
-                                "type": "number",
-                                "description": "Approach speed in m/s",
-                                "default": 5.0,
-                                "minimum": 0.1,
-                                "maximum": 15.0,
-                            },
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="set_velocity",
-                    description=(
-                        "Set velocity setpoint in NED frame (offboard mode). "
-                        "CRITICAL: Must maintain 20Hz stream or PX4 triggers failsafe. "
-                        "Max horizontal: 15 m/s. Max vertical: 3 m/s. "
-                        "Requires flying state. Transitions to VELOCITY_CONTROL."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "north_m_s": {
-                                "type": "number",
-                                "description": "Velocity north (positive) / south (negative) in m/s",
-                                "default": 0.0,
-                            },
-                            "east_m_s": {
-                                "type": "number",
-                                "description": "Velocity east (positive) / west (negative) in m/s",
-                                "default": 0.0,
-                            },
-                            "down_m_s": {
-                                "type": "number",
-                                "description": "Velocity down (positive) / up (negative) in m/s",
-                                "default": 0.0,
-                            },
-                            "yaw_deg": {
-                                "type": "number",
-                                "description": "Absolute yaw angle in degrees (0=north, 90=east)",
-                                "default": 0.0,
-                            },
-                            "duration_s": {
-                                "type": "number",
-                                "description": "Duration to maintain setpoint in seconds",
-                                "default": 1.0,
-                                "minimum": 0.1,
-                                "maximum": 10.0,
-                            },
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="hold",
-                    description=(
-                        "Hold position with monitoring. "
-                        "Enters HOVERING state and monitors for position drift. "
-                        "Optionally auto-triggers RTL if drift exceeds tolerance."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "duration_s": {
-                                "type": "number",
-                                "description": "Duration to hold position in seconds",
-                                "default": 5.0,
-                                "minimum": 1.0,
-                                "maximum": 60.0,
-                            },
-                            "position_tolerance_m": {
-                                "type": "number",
-                                "description": "Allowed position drift in meters",
-                                "default": 1.0,
-                                "minimum": 0.1,
-                                "maximum": 10.0,
-                            },
-                            "auto_rtl_on_drift": {
-                                "type": "boolean",
-                                "description": "If True, RTL when drift exceeds tolerance",
-                                "default": False,
-                            },
-                        },
-                        "required": [],
-                    },
-                ),
-
-                # ==============================================================================
-                # VISION TOOLS - Object detection and tracking
-                # ==============================================================================
-                types.Tool(
-                    name="detect_objects",
-                    description=(
-                        "Detect objects in camera frame using YOLO. "
-                        "Returns detected objects with bounding boxes and confidence."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "confidence_threshold": {
-                                "type": "number",
-                                "description": "Minimum detection confidence (0.0-1.0)",
-                                "default": 0.5,
-                            },
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="get_detected_objects",
-                    description=(
-                        "Get currently detected objects from cache. "
-                        "Returns last detection results without running new inference."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-
-                # ==============================================================================
-                # STATUS TOOL - Server health and diagnostics
-                # ==============================================================================
-                types.Tool(
-                    name="get_status",
-                    description=(
-                        "Get comprehensive server status. "
-                        "Returns connection state, flight state, guardian status, "
-                        "telemetry cache metrics, and heartbeat metrics."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-
-                # ==============================================================================
-                # ACROBATIC FLIGHT TOOLS - Advanced maneuvers
-                # ==============================================================================
-                # WARNING: These are high-energy maneuvers requiring safety margins
-                types.Tool(
-                    name="front_flip",
-                    description=(
-                        "Execute a forward 360 deg flip. "
-                        "WARNING: High-energy maneuver. "
-                        "Requires minimum 15m altitude and 50% battery. "
-                        "Auto-recovers to hover after completion."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="back_flip",
-                    description=(
-                        "Execute a backward 360 deg flip. "
-                        "WARNING: High-energy maneuver. "
-                        "Requires minimum 15m altitude and 50% battery. "
-                        "Auto-recovers to hover after completion."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="barrel_roll",
-                    description=(
-                        "Execute a 360 deg barrel roll (left or right). "
-                        "WARNING: High-energy maneuver. "
-                        "Requires minimum 15m altitude and 50% battery. "
-                        "Auto-recovers to hover after completion."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "direction": {
-                                "type": "string",
-                                "description": "Direction of roll",
-                                "enum": ["left", "right"],
-                                "default": "right",
-                            }
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="yaw_spin",
-                    description=(
-                        "Execute rapid 360 deg yaw rotation. "
-                        "WARNING: High-energy maneuver. "
-                        "Requires minimum 15m altitude and 50% battery. "
-                        "Auto-recovers to hover after completion."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "direction": {
-                                "type": "string",
-                                "description": "Direction of spin",
-                                "enum": ["cw", "ccw"],
-                                "default": "cw",
-                            },
-                            "rotations": {
-                                "type": "number",
-                                "description": "Number of full 360 deg rotations",
-                                "default": 1.0,
-                                "minimum": 0.5,
-                                "maximum": 5.0,
-                            }
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="loop_maneuver",
-                    description=(
-                        "Execute a vertical loop (circular climb and dive). "
-                        "WARNING: High-energy maneuver. "
-                        "Requires minimum 20m altitude. "
-                        "Uses full thrust during maneuver. "
-                        "Auto-recovers to hover after completion."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="corkscrew",
-                    description=(
-                        "Execute a corkscrew spiral (combined roll and yaw). "
-                        "WARNING: High-energy maneuver. "
-                        "Requires minimum 15m altitude and 50% battery. "
-                        "Auto-recovers to hover after completion."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "rotations": {
-                                "type": "number",
-                                "description": "Number of spiral rotations",
-                                "default": 1.0,
-                                "minimum": 0.5,
-                                "maximum": 3.0,
-                            }
-                        },
-                        "required": [],
-                    },
-                ),
-
-                # ==============================================================================
-                # TRACKING AND CAMERA CONTROL TOOLS
-                # ==============================================================================
-                types.Tool(
-                    name="set_gimbal",
-                    description=(
-                        "Control camera gimbal angles independently of drone. "
-                        "Set pitch (-90 deg=down, 0 deg=level, 30 deg=up), yaw (-180 deg to 180 deg), "
-                        "and roll (-45 deg to 45 deg). "
-                        "Useful for looking at targets while flying."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "pitch_deg": {
-                                "type": "number",
-                                "description": "Pitch angle: -90=down, 0=level, 30=up",
-                                "default": -45.0,
-                                "minimum": -90.0,
-                                "maximum": 30.0,
-                            },
-                            "yaw_deg": {
-                                "type": "number",
-                                "description": "Yaw angle relative to drone (-180 to 180)",
-                                "default": 0.0,
-                                "minimum": -180.0,
-                                "maximum": 180.0,
-                            },
-                            "roll_deg": {
-                                "type": "number",
-                                "description": "Roll angle (-45 to 45)",
-                                "default": 0.0,
-                                "minimum": -45.0,
-                                "maximum": 45.0,
-                            },
-                        },
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="point_camera_at",
-                    description=(
-                        "Point camera at specific GPS coordinates. "
-                        "Calculates gimbal angles automatically. "
-                        "Drone stays in position, only camera moves."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "lat": {
-                                "type": "number",
-                                "description": "Target latitude",
-                            },
-                            "lon": {
-                                "type": "number",
-                                "description": "Target longitude",
-                            },
-                            "alt_m": {
-                                "type": "number",
-                                "description": "Target altitude (optional)",
-                            },
-                        },
-                        "required": ["lat", "lon"],
-                    },
-                ),
-                types.Tool(
-                    name="orbit_target",
-                    description=(
-                        "Circle around a target while keeping camera locked. "
-                        "Flies in a circle around target coordinates while "
-                        "continuously pointing camera at center. "
-                        "Perfect for cinematic shots or surveillance."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "target_lat": {
-                                "type": "number",
-                                "description": "Target latitude",
-                            },
-                            "target_lon": {
-                                "type": "number",
-                                "description": "Target longitude",
-                            },
-                            "target_alt_m": {
-                                "type": "number",
-                                "description": "Target altitude",
-                            },
-                            "radius_m": {
-                                "type": "number",
-                                "description": "Orbit radius in meters",
-                                "default": 10.0,
-                                "minimum": 5.0,
-                                "maximum": 100.0,
-                            },
-                            "speed_m_s": {
-                                "type": "number",
-                                "description": "Orbit speed",
-                                "default": 3.0,
-                                "minimum": 1.0,
-                                "maximum": 10.0,
-                            },
-                            "altitude_offset_m": {
-                                "type": "number",
-                                "description": "Height above target",
-                                "default": 15.0,
-                                "minimum": 10.0,
-                                "maximum": 50.0,
-                            },
-                            "clockwise": {
-                                "type": "boolean",
-                                "description": "Orbit direction",
-                                "default": True,
-                            },
-                            "duration_s": {
-                                "type": "number",
-                                "description": "Orbit duration",
-                                "default": 30.0,
-                                "minimum": 5.0,
-                                "maximum": 300.0,
-                            },
-                            "keep_camera_locked": {
-                                "type": "boolean",
-                                "description": "Keep camera on target",
-                                "default": True,
-                            },
-                        },
-                        "required": ["target_lat", "target_lon"],
-                    },
-                ),
-                types.Tool(
-                    name="track_target",
-                    description=(
-                        "Track and follow a moving target. "
-                        "Follows targets like snowboarders, cars, or people "
-                        "while maintaining camera lock. Supports predictive tracking."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "target_lat": {
-                                "type": "number",
-                                "description": "Initial target latitude",
-                            },
-                            "target_lon": {
-                                "type": "number",
-                                "description": "Initial target longitude",
-                            },
-                            "target_velocity_north": {
-                                "type": "number",
-                                "description": "Target velocity north (m/s)",
-                                "default": 0.0,
-                            },
-                            "target_velocity_east": {
-                                "type": "number",
-                                "description": "Target velocity east (m/s)",
-                                "default": 0.0,
-                            },
-                            "follow_distance_m": {
-                                "type": "number",
-                                "description": "Distance behind target",
-                                "default": 8.0,
-                                "minimum": 5.0,
-                                "maximum": 30.0,
-                            },
-                            "altitude_m": {
-                                "type": "number",
-                                "description": "Tracking altitude",
-                                "default": 20.0,
-                                "minimum": 15.0,
-                                "maximum": 50.0,
-                            },
-                            "speed_m_s": {
-                                "type": "number",
-                                "description": "Maximum tracking speed",
-                                "default": 8.0,
-                                "minimum": 3.0,
-                                "maximum": 15.0,
-                            },
-                            "duration_s": {
-                                "type": "number",
-                                "description": "Tracking duration",
-                                "default": 60.0,
-                                "maximum": 300.0,
-                            },
-                            "predictive": {
-                                "type": "boolean",
-                                "description": "Use velocity prediction",
-                                "default": True,
-                            },
-                            "tracking_mode": {
-                                "type": "string",
-                                "description": "Position relative to target",
-                                "enum": ["follow", "lead", "side"],
-                                "default": "follow",
-                            },
-                        },
-                        "required": ["target_lat", "target_lon"],
-                    },
-                ),
-                types.Tool(
-                    name="spiral_search",
-                    description=(
-                        "Perform expanding spiral search pattern. "
-                        "Flies outward spiral while climbing, keeping camera "
-                        "pointed at center. Useful for search and rescue."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "center_lat": {
-                                "type": "number",
-                                "description": "Center latitude",
-                            },
-                            "center_lon": {
-                                "type": "number",
-                                "description": "Center longitude",
-                            },
-                            "start_altitude_m": {
-                                "type": "number",
-                                "description": "Starting altitude",
-                                "default": 20.0,
-                            },
-                            "max_radius_m": {
-                                "type": "number",
-                                "description": "Maximum spiral radius",
-                                "default": 100.0,
-                            },
-                            "max_altitude_m": {
-                                "type": "number",
-                                "description": "Maximum altitude",
-                                "default": 50.0,
-                            },
-                            "rotations": {
-                                "type": "number",
-                                "description": "Number of rotations",
-                                "default": 3.0,
-                            },
-                            "speed_m_s": {
-                                "type": "number",
-                                "description": "Flight speed",
-                                "default": 5.0,
-                            },
-                        },
-                        "required": ["center_lat", "center_lon"],
-                    },
-                ),
-
-                # ==============================================================================
-                # CINEMATIC SHOT TOOLS - Pre-programmed professional shots
-                # ==============================================================================
-                types.Tool(
-                    name="execute_cinematic_shot",
-                    description=(
-                        "Execute a pre-programmed cinematic shot with smooth motion curves. "
-                        "Professional-quality filming for action sports. "
-                        "Templates: orbit_close, orbit_wide, follow_close, follow_wide, "
-                        "reveal_hero, pass_by_low, top_down_dynamic, height_locked_jump, "
-                        "fpv_dynamic, snowboard_halfpipe, skate_ledge_gap. "
-                        "Features height-locked tracking (0.2m) for tricks at specific heights."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "template_name": {
-                                "type": "string",
-                                "description": "Shot template name (e.g., 'orbit_close', 'follow_close')",
-                            },
-                            "target_lat": {
-                                "type": "number",
-                                "description": "Target/subject latitude",
-                            },
-                            "target_lon": {
-                                "type": "number",
-                                "description": "Target/subject longitude",
-                            },
-                            "target_alt_m": {
-                                "type": "number",
-                                "description": "Target altitude (optional, uses current if not set)",
-                            },
-                            "duration_s": {
-                                "type": "number",
-                                "description": "Override shot duration (optional)",
-                            },
-                            "custom_params": {
-                                "type": "object",
-                                "description": "Custom parameter overrides (optional)",
-                            },
-                        },
-                        "required": ["template_name", "target_lat", "target_lon"],
-                    },
-                ),
-                types.Tool(
-                    name="list_cinematic_templates",
-                    description=(
-                        "List all available cinematic shot templates with descriptions. "
-                        "Use this to discover available shots before executing."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
-                ),
-                types.Tool(
-                    name="preview_cinematic_shot",
-                    description=(
-                        "Preview a cinematic shot trajectory without executing. "
-                        "Shows planned path, waypoints, and estimated duration."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "template_name": {
-                                "type": "string",
-                                "description": "Shot template name",
-                            },
-                            "target_lat": {
-                                "type": "number",
-                                "description": "Target latitude",
-                            },
-                            "target_lon": {
-                                "type": "number",
-                                "description": "Target longitude",
-                            },
-                        },
-                        "required": ["template_name", "target_lat", "target_lon"],
-                    },
-                ),
-            ]
+            return avatar_mcp_tool_definitions()
 
         # ==============================================================================
         # TOOL EXECUTION HANDLER

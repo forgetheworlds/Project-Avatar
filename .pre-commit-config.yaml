@@ -30,12 +30,12 @@ repos:
       - id: trailing-whitespace
         name: Trim trailing whitespace
         stages: [pre-commit]
-        exclude: "\.md$|\.svg$"
+        exclude: '\.md$|\.svg$'
 
       - id: end-of-file-fixer
         name: Fix end of files
         stages: [pre-commit]
-        exclude: "\.md$"
+        exclude: '\.md$'
 
       - id: check-yaml
         name: Check YAML syntax
@@ -58,7 +58,7 @@ repos:
         name: Check for large files
         stages: [pre-commit]
         args: [--maxkb=1000]
-        exclude: "\.pkl$|\.h5$|\.onnx$"
+        exclude: '\.pkl$|\.h5$|\.onnx$'
 
       - id: check-case-conflict
         name: Check for case conflicts
@@ -110,7 +110,7 @@ repos:
       - id: requirements-txt-fixer
         name: Fix requirements.txt formatting
         stages: [pre-commit]
-        files: "requirements.*\\.txt$"
+        files: 'requirements.*\.txt$'
 
   # ==========================================================================
   # PYTHON CODE FORMATTING
@@ -174,7 +174,7 @@ repos:
           - --warn-unreachable
           - --warn-redundant-casts
           - --warn-unused-ignores
-        exclude: "tests/|conftest\.py"
+        exclude: 'tests/|conftest\.py'
 
   # ==========================================================================
   # STATIC ANALYSIS - PYLINT (SAFETY-FOCUSED)
@@ -193,7 +193,7 @@ repos:
           - --fail-under=9.0
           - --output-format=colorized
           - --reports=no
-        exclude: "tests/|conftest\.py"
+        exclude: 'tests/|conftest\.py'
 
   # ==========================================================================
   # SECURITY SCANNING - BANDIT
@@ -210,7 +210,7 @@ repos:
           - -ll
           - -ii
           - -r
-        exclude: "tests/|conftest\.py"
+        exclude: 'tests/|conftest\.py'
 
   # ==========================================================================
   # DEPENDENCY SECURITY - SAFETY
@@ -221,7 +221,7 @@ repos:
       - id: python-safety-dependencies-check
         name: Safety dependency check
         stages: [pre-push]
-        files: "requirements.*\\.txt$|pyproject\.toml$"
+        files: 'requirements.*\.txt$|pyproject\.toml$'
 
   # ==========================================================================
   # ADDITIONAL PYTHON CHECKS
@@ -259,8 +259,8 @@ repos:
         always_run: true
         stages: [pre-push]
         args:
-          - -xvs
-          - tests/unit
+          - -q
+          - tests
           - --tb=short
           - --timeout=60
           - -m
@@ -274,12 +274,12 @@ repos:
         always_run: true
         stages: [pre-push]
         args:
-          - --cov=src/drone
+          - --cov=avatar
           - --cov-fail-under=90
           - --cov-report=term-missing
-          - tests/unit
+          - tests
           - -m
-          - "not slow"
+          - "not slow and not hardware_in_loop"
 
   # ==========================================================================
   # FILE-SPECIFIC CHECKS
@@ -341,7 +341,7 @@ repos:
 
       - id: check-import-cycles
         name: Check for import cycles
-        entry: python -c "import drone"
+        entry: python -c "import avatar"
         language: system
         pass_filenames: false
         always_run: true
