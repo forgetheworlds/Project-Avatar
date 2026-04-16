@@ -4,6 +4,169 @@ Avatar MCP Server - Agent-agnostic Model Context Protocol interface.
 Exposes drone control tools to any MCP-compatible AI agent (Claude Code, OpenCode, etc.).
 Architecture 2.0: Cloud LLM + Agent-Agnostic MCP + PX4 SITL Simulation.
 
+================================================================================
+MCP ARCHITECTURE OVERVIEW
+================================================================================
+
+The Model Context Protocol (MCP) is an open standard that enables AI agents to
+connect to external tools and services. This server implements the MCP protocol
+to expose drone control capabilities to any MCP-compatible client.
+
+MCP Communication Flow:
+-----------------------
+1. Client (Claude Code) starts this server as a subprocess
+2. Server communicates via JSON-RPC over stdio (stdin/stdout)
+3. Client sends `initialize` request to negotiate protocol version
+4. Server responds with capabilities (list of available tools)
+5. Client calls `tools/list` to discover available tools
+6. Client calls `tools/call` with tool name + arguments
+7. Server executes tool and returns result as TextContent
+8. Server can also send notifications (progress updates, alerts)
+
+Key MCP Concepts:
+-----------------
+- **Server**: The process exposing tools (this file)
+- **Client**: The AI agent calling tools (Claude Code)
+- **Tool**: A function exposed to the client with schema + description
+- **Transport**: Communication channel (stdio for this server)
+- **Capability**: What the server can do (tools, resources, prompts)
+
+================================================================================
+TOOL REGISTRATION ARCHITECTURE
+================================================================================
+
+Tools are registered in two phases:
+
+Phase 1: Tool Definition (Schema Declaration)
+---------------------------------------------
+- In `_setup_handlers()`, we use `@self.server.list_tools()` decorator
+- Returns a list of `types.Tool` objects defining:
+  - `name`: Unique identifier for the tool (e.g., "arm_and_takeoff")
+  - `description`: Human-readable description for the LLM
+  - `inputSchema`: JSON Schema defining valid arguments
+    - Type information (string, number, boolean)
+    - Descriptions for each parameter
+    - Default values
+    - Validation constraints (min/max, enums)
+    - Required vs optional fields
+
+Phase 2: Tool Execution (Handler Routing)
+-----------------------------------------
+- In `_setup_handlers()`, we use `@self.server.call_tool()` decorator
+- Handler receives `name` (tool name) and `arguments` (dict of params)
+- `_route_tool()` method maps tool name to actual implementation
+- Each tool handler:
+  1. Validates server is initialized
+  2. Extracts arguments with defaults
+  3. Calls the actual tool function
+  4. Returns JSON string result
+
+Why This Two-Phase Design?
+--------------------------
+1. Discovery: Client can list tools without executing them
+2. Schema Validation: MCP layer validates args before calling handler
+3. LLM Context: Descriptions help LLM choose right tool with right args
+4. Type Safety: JSON Schema ensures well-formed inputs
+
+================================================================================
+REQUEST/RESPONSE FLOW
+================================================================================
+
+Incoming Request Processing:
+----------------------------
+1. MCP stdio transport receives JSON-RPC message
+2. MCP library parses and routes to appropriate handler
+3. `handle_call_tool` receives (name, arguments)
+4. Server checks `_initialized` flag (returns error if not ready)
+5. `_route_tool()` switches on tool name to find handler
+6. Handler extracts arguments with `.get()` providing defaults
+7. Handler calls async tool function (from tools/ modules)
+8. Tool function interacts with drone via ConnectionManager
+9. Result is serialized to JSON string
+10. JSON wrapped in `types.TextContent` and returned to MCP
+11. MCP serializes to JSON-RPC response and writes to stdout
+
+Error Handling Path:
+--------------------
+1. Try-catch in `handle_call_tool` catches all exceptions
+2. Exception logged with `logger.exception()` for debugging
+3. Error serialized to JSON: `{"success": false, "error": "..."}`
+4. Client receives error as normal response (no transport error)
+5. Server continues running, ready for next command
+
+================================================================================
+SERVER LIFECYCLE
+================================================================================
+
+Startup Sequence (initialize()):
+--------------------------------
+1. Connect to drone via ConnectionManager (retry logic included)
+2. Start TelemetryCache with configured refresh interval (100ms)
+3. Start HeartbeatService at 20Hz (required for offboard mode)
+4. Sync FlightStateMachine from current telemetry
+5. Start AsyncGuardian safety monitoring (if enabled)
+6. Set `_initialized = True`
+
+Running Phase (run()):
+----------------------
+1. Verify initialized state
+2. Create stdio_server() context manager for transport
+3. Call server.run() with initialization options
+4. Server listens for MCP messages until shutdown
+5. Each message routed to appropriate handler
+
+Shutdown Sequence (shutdown()):
+-------------------------------
+1. Stop AsyncGuardian (safety monitoring first)
+2. Stop HeartbeatService (20Hz emission)
+3. Stop TelemetryCache (data refresh)
+4. Disconnect from drone (close MAVSDK connection)
+5. Reset state flags
+6. Set shutdown event for any waiting tasks
+
+Cleanup on Initialization Failure (_cleanup_partial()):
+---------------------------------------------------------
+- Called if any initialization step fails
+- Stops any services that were started
+- Disconnects from drone
+- Ensures no dangling resources
+
+================================================================================
+CORE COMPONENTS (Singleton Pattern)
+================================================================================
+
+ConnectionManager:
+------------------
+- Singleton managing persistent MAVSDK connection
+- Handles connection retry logic and health monitoring
+- All tools access drone through this shared instance
+
+TelemetryCache:
+---------------
+- Non-blocking telemetry access (100ms refresh)
+- Decouples tool handlers from slow MAVSDK calls
+- Provides fresh/stale data detection
+
+HeartbeatService:
+-----------------
+- Emits 20Hz heartbeats required for PX4 offboard mode
+- Critical safety component - stops = failsafe trigger
+- Separate task to avoid blocking tool execution
+
+FlightStateMachine:
+-------------------
+- Tracks and validates flight state transitions
+- Prevents invalid operations (e.g., takeoff when armed)
+- Tools check state before executing operations
+
+AsyncGuardian:
+--------------
+- Concurrent safety monitoring task
+- Watches for connection loss, low battery, geofence breach
+- Can auto-trigger failsafe actions
+- Runs independently of tool execution
+
+================================================================================
 Key Components:
     - ConnectionManager: Singleton for persistent MAVSDK connection
     - TelemetryCache: 100ms refresh non-blocking telemetry access
@@ -28,12 +191,25 @@ Example:
 import asyncio
 import json
 import logging
+import os
+import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 from unittest.mock import MagicMock
 
-# MCP imports with graceful fallback for testing
-# MCP (Model Context Protocol) is required for production but may not be installed in test environments
+# ==============================================================================
+# MCP IMPORTS WITH GRACEFUL FALLBACK
+# ==============================================================================
+# The MCP (Model Context Protocol) library is required for production use but
+# may not be installed in test environments. We provide mock implementations
+# that allow the server code to be imported and tested without the actual
+# mcp package installed.
+#
+# This is important for:
+# - Unit tests that don't need real MCP transport
+# - CI/CD environments without full dependencies
+# - Development environments where mcp isn't installed yet
+
 try:
     import mcp.server.stdio
     import mcp.types as types
@@ -82,7 +258,12 @@ except ImportError:
             self.__dict__.update(kwargs)
 
 
-# Core components - singleton pattern enforced
+# ==============================================================================
+# CORE COMPONENT IMPORTS
+# ==============================================================================
+# All components use singleton pattern or shared instances to ensure
+# consistent state across all tool invocations.
+
 from avatar.mav.connection_manager import ConnectionManager
 from avatar.mav.telemetry_cache import TelemetryCache, TelemetryData
 from avatar.mav.heartbeat_service import HeartbeatService, HeartbeatConfig, HeartbeatSource
@@ -90,29 +271,54 @@ from avatar.mav.state_machine import FlightStateMachine, FlightState
 from avatar.mav.guardian_async import AsyncGuardian, GuardianConfig, SafetyAction
 from avatar.core.context_managers import _get_telemetry_from_drone
 
-# Tool modules
+# ==============================================================================
+# TOOL MODULE IMPORTS
+# ==============================================================================
+# Tool implementations are organized by category into separate modules.
+# This keeps the server file focused on MCP protocol handling while
+# the actual drone operations live in specialized modules.
+
+# Flight control: Basic flight operations (arm, takeoff, land, goto, etc.)
 from avatar.mcp_server.tools.flight_tools import (
     FlightTools, FlightToolsConfig,
     arm_and_takeoff, land, rtl, abort_mission, goto_gps,
     fly_body_offset, set_velocity, hold,
     set_state_machine, set_telemetry_cache,
 )
+
+# Telemetry: Access to drone state data
 from avatar.mcp_server.tools.telemetry_tools import get_telemetry
+from avatar.mcp_server.tools.telemetry_tools import set_state_machine as set_telemetry_state_machine
+from avatar.mcp_server.tools.telemetry_tools import set_telemetry_cache as set_telemetry_telemetry_cache
+from avatar.mcp_server.tools.telemetry_tools import set_guardian as set_telemetry_guardian
+
+# Vision: YOLO-based object detection
 from avatar.mcp_server.tools.vision_tools import detect_objects, get_detected_objects
+
+# Acrobatics: Advanced maneuvers (flips, rolls, spins)
 from avatar.mcp_server.tools.acrobatics import (
     front_flip, back_flip, barrel_roll, yaw_spin,
     loop_maneuver, corkscrew, acrobatic_sequence
 )
+
+# Tracking: Target tracking and camera control
 from avatar.mcp_server.tools.tracking_tools import (
     set_gimbal, point_camera_at, orbit_target,
     track_target, spiral_search
 )
+
+# Cinematic: Pre-programmed professional shots
 from avatar.mcp_server.tools.cinematic_shots import (
     execute_cinematic_shot, list_cinematic_templates, preview_cinematic_shot
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# ==============================================================================
+# LOGGING CONFIGURATION
+# ==============================================================================
+# Root logger configuration - all modules use this logger hierarchy.
+# INFO level for production, DEBUG for development.
+
+logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
 
@@ -128,9 +334,16 @@ def _create_mock_velocity_ned_yaw(
     return mock
 
 
+# ==============================================================================
+# CONFIGURATION DATACLASS
+# ==============================================================================
+
 @dataclass
 class AvatarMCPServerConfig:
     """Configuration for AvatarMCPServer.
+
+    All parameters have defaults suitable for PX4 SITL simulation.
+    Modify these for real hardware deployments.
 
     Attributes:
         system_address: MAVSDK system address (default: udp://:14540 for SITL)
@@ -143,15 +356,47 @@ class AvatarMCPServerConfig:
         retry_delay_s: Delay between connection retries in seconds
     """
 
-    system_address: str = "udp://:14540"
+    system_address: str = "udp://:14540"  # Default SITL address
     connection_timeout_s: float = 30.0
     telemetry_refresh_ms: int = 100  # 100ms as per requirements
-    heartbeat_hz: float = 20.0  # 20Hz as per requirements
+    heartbeat_hz: float = 20.0  # 20Hz as per PX4 offboard requirements
     enable_guardian: bool = True
     enable_auto_failsafe: bool = True
     max_retries: int = 3
     retry_delay_s: float = 1.0
+    connect_on_start: bool = True
 
+    @classmethod
+    def from_env(cls) -> "AvatarMCPServerConfig":
+        """Build server config from environment variables."""
+        def env_bool(name: str, default: bool) -> bool:
+            raw = os.getenv(name)
+            if raw is None:
+                return default
+            return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+        return cls(
+            system_address=os.getenv("AVATAR_SYSTEM_ADDRESS", cls.system_address),
+            connection_timeout_s=float(
+                os.getenv("AVATAR_CONNECTION_TIMEOUT_S", cls.connection_timeout_s)
+            ),
+            telemetry_refresh_ms=int(
+                os.getenv("AVATAR_TELEMETRY_REFRESH_MS", cls.telemetry_refresh_ms)
+            ),
+            heartbeat_hz=float(os.getenv("AVATAR_HEARTBEAT_HZ", cls.heartbeat_hz)),
+            enable_guardian=env_bool("AVATAR_ENABLE_GUARDIAN", cls.enable_guardian),
+            enable_auto_failsafe=env_bool(
+                "AVATAR_ENABLE_AUTO_FAILSAFE", cls.enable_auto_failsafe
+            ),
+            max_retries=int(os.getenv("AVATAR_MAX_RETRIES", cls.max_retries)),
+            retry_delay_s=float(os.getenv("AVATAR_RETRY_DELAY_S", cls.retry_delay_s)),
+            connect_on_start=env_bool("AVATAR_CONNECT_ON_START", cls.connect_on_start),
+        )
+
+
+# ==============================================================================
+# MAIN SERVER CLASS
+# ==============================================================================
 
 class AvatarMCPServer:
     """
@@ -184,6 +429,10 @@ class AvatarMCPServer:
     def __init__(self, config: Optional[AvatarMCPServerConfig] = None):
         """Initialize the Avatar MCP server.
 
+        This constructor creates all component instances but does NOT start
+        any services or establish connections. Call initialize() to fully
+        start the server.
+
         Args:
             config: Server configuration. Uses defaults if not provided.
 
@@ -192,24 +441,46 @@ class AvatarMCPServer:
             Call initialize() to fully start the server.
         """
         self.config = config or AvatarMCPServerConfig()
+
+        # Create the MCP server instance with name "avatar-mcp"
+        # This name appears in MCP client logs and debugging output
         self.server = Server("avatar-mcp")
 
-        # Core components - all singletons or shared instances
+        # ==============================================================================
+        # CORE COMPONENTS - SINGLETON PATTERN
+        # ==============================================================================
+        # These components are shared across all tool invocations.
+        # Using singletons ensures consistent state and prevents resource conflicts.
+
+        # ConnectionManager: Manages MAVSDK connection to PX4
+        # All drone communication goes through this single connection
         self.connection_manager: ConnectionManager = ConnectionManager()
+
+        # TelemetryCache: Provides fast, non-blocking telemetry access
+        # Background task refreshes data every 100ms from the drone
         self.telemetry_cache: TelemetryCache = TelemetryCache(
             refresh_ms=self.config.telemetry_refresh_ms,
-            stale_ms=500,  # 500ms stale threshold
-            history_size=100,
+            stale_ms=500,  # Data older than 500ms considered stale
+            history_size=100,  # Keep last 100 samples for trending
         )
+
+        # HeartbeatService: Emits 20Hz heartbeats for offboard mode
+        # PX4 requires minimum 2Hz, we use 20Hz for safety margin
         self.heartbeat_service: HeartbeatService = HeartbeatService(
             config=HeartbeatConfig(
                 heartbeat_hz=self.config.heartbeat_hz,
-                offboard_timeout_s=0.5,
-                warning_threshold_s=0.3,
-                emit_heartbeat=True,
+                offboard_timeout_s=0.5,  # Trigger failsafe if no heartbeat for 0.5s
+                warning_threshold_s=0.3,  # Warn at 0.3s gap
+                emit_heartbeat=True,  # We emit heartbeats (vs just monitoring)
             )
         )
+
+        # FlightStateMachine: Tracks and validates flight state
+        # Prevents invalid transitions (e.g., takeoff when already flying)
         self.state_machine: FlightStateMachine = FlightStateMachine()
+
+        # AsyncGuardian: Background safety monitoring
+        # Runs concurrent tasks watching for dangerous conditions
         self.guardian: AsyncGuardian = AsyncGuardian(
             connection_manager=self.connection_manager,
             heartbeat_service=self.heartbeat_service,
@@ -225,8 +496,10 @@ class AvatarMCPServer:
                 enable_network_monitor=True,
             ),
         )
+        self.guardian.on_failsafe = self._handle_guardian_failsafe
 
-        # Flight tools with shared state machine
+        # FlightTools: High-level flight operations
+        # Wraps MAVSDK actions in state-machine-aware methods
         self.flight_tools = FlightTools(
             config=FlightToolsConfig(
                 system_address=self.config.system_address,
@@ -237,28 +510,73 @@ class AvatarMCPServer:
             state_machine=self.state_machine,
         )
 
-        # Set global references for tool functions
+        # Set global references for tool function modules
+        # This allows tool functions to access shared state
         set_state_machine(self.state_machine)
         set_telemetry_cache(self.telemetry_cache)
+        set_telemetry_state_machine(self.state_machine)
+        set_telemetry_telemetry_cache(self.telemetry_cache)
+        set_telemetry_guardian(self.guardian)
 
-        # Runtime state
-        self._initialized = False
-        self._shutdown_event = asyncio.Event()
-        self._tasks: Set[asyncio.Task[Any]] = set()
+        # ==============================================================================
+        # RUNTIME STATE
+        # ==============================================================================
+        self._initialized = False  # Set to True after successful initialize()
+        self._shutdown_event = asyncio.Event()  # Signal for graceful shutdown
+        self._tasks: Set[asyncio.Task[Any]] = set()  # Track background tasks
 
-        # Set up MCP handlers
+        # ==============================================================================
+        # SETUP MCP HANDLERS
+        # ==============================================================================
+        # Register tool definitions and execution handlers with MCP framework
+        # This must be called after creating self.server
         self._setup_handlers()
 
         logger.info("AvatarMCPServer initialized (components created, not yet started)")
 
     def _setup_handlers(self) -> None:
-        """Set up MCP protocol handlers for tool registration and execution."""
+        """Set up MCP protocol handlers for tool registration and execution.
+
+        This method registers two key handlers with the MCP server:
+
+        1. list_tools handler: Called by client to discover available tools
+           - Returns list of Tool objects with name, description, inputSchema
+           - Descriptions help LLM understand when to use each tool
+           - Schema enables parameter validation
+
+        2. call_tool handler: Called by client to execute a tool
+           - Receives tool name and arguments
+           - Validates server is initialized
+           - Routes to appropriate handler via _route_tool()
+           - Returns result as JSON string wrapped in TextContent
+
+        These handlers are the bridge between MCP protocol messages and
+        our drone control implementation.
+        """
+
+        # ==============================================================================
+        # TOOL LISTING HANDLER
+        # ==============================================================================
+        # This handler responds to the MCP "tools/list" method.
+        # It returns the complete catalog of available tools with their schemas.
+        # The client (Claude) uses this to understand what capabilities are available.
 
         @self.server.list_tools()  # type: ignore[untyped-decorator]
         async def handle_list_tools() -> List[types.Tool]:
-            """List available drone control tools."""
+            """List available drone control tools.
+
+            Returns:
+                List of Tool objects defining all exposed capabilities.
+                Each tool includes:
+                - name: Unique identifier (used in call_tool)
+                - description: Human-readable explanation for LLM
+                - inputSchema: JSON Schema for parameter validation
+            """
             return [
-                # Flight control tools
+                # ==============================================================================
+                # FLIGHT CONTROL TOOLS - Basic flight operations
+                # ==============================================================================
+
                 types.Tool(
                     name="arm_and_takeoff",
                     description=(
@@ -278,7 +596,7 @@ class AvatarMCPServer:
                                 "maximum": 120,
                             }
                         },
-                        "required": [],
+                        "required": [],  # All parameters have defaults
                     },
                 ),
                 types.Tool(
@@ -369,7 +687,7 @@ class AvatarMCPServer:
                                 "maximum": 15.0,
                             },
                         },
-                        "required": ["lat", "lon"],
+                        "required": ["lat", "lon"],  # Must provide coordinates
                     },
                 ),
                 types.Tool(
@@ -489,6 +807,10 @@ class AvatarMCPServer:
                         "required": [],
                     },
                 ),
+
+                # ==============================================================================
+                # VISION TOOLS - Object detection and tracking
+                # ==============================================================================
                 types.Tool(
                     name="detect_objects",
                     description=(
@@ -519,6 +841,10 @@ class AvatarMCPServer:
                         "required": [],
                     },
                 ),
+
+                # ==============================================================================
+                # STATUS TOOL - Server health and diagnostics
+                # ==============================================================================
                 types.Tool(
                     name="get_status",
                     description=(
@@ -532,11 +858,15 @@ class AvatarMCPServer:
                         "required": [],
                     },
                 ),
-                # Acrobatic flight tools
+
+                # ==============================================================================
+                # ACROBATIC FLIGHT TOOLS - Advanced maneuvers
+                # ==============================================================================
+                # WARNING: These are high-energy maneuvers requiring safety margins
                 types.Tool(
                     name="front_flip",
                     description=(
-                        "Execute a forward 360° flip. "
+                        "Execute a forward 360 deg flip. "
                         "WARNING: High-energy maneuver. "
                         "Requires minimum 15m altitude and 50% battery. "
                         "Auto-recovers to hover after completion."
@@ -550,7 +880,7 @@ class AvatarMCPServer:
                 types.Tool(
                     name="back_flip",
                     description=(
-                        "Execute a backward 360° flip. "
+                        "Execute a backward 360 deg flip. "
                         "WARNING: High-energy maneuver. "
                         "Requires minimum 15m altitude and 50% battery. "
                         "Auto-recovers to hover after completion."
@@ -564,7 +894,7 @@ class AvatarMCPServer:
                 types.Tool(
                     name="barrel_roll",
                     description=(
-                        "Execute a 360° barrel roll (left or right). "
+                        "Execute a 360 deg barrel roll (left or right). "
                         "WARNING: High-energy maneuver. "
                         "Requires minimum 15m altitude and 50% battery. "
                         "Auto-recovers to hover after completion."
@@ -585,7 +915,7 @@ class AvatarMCPServer:
                 types.Tool(
                     name="yaw_spin",
                     description=(
-                        "Execute rapid 360° yaw rotation. "
+                        "Execute rapid 360 deg yaw rotation. "
                         "WARNING: High-energy maneuver. "
                         "Requires minimum 15m altitude and 50% battery. "
                         "Auto-recovers to hover after completion."
@@ -601,7 +931,7 @@ class AvatarMCPServer:
                             },
                             "rotations": {
                                 "type": "number",
-                                "description": "Number of full 360° rotations",
+                                "description": "Number of full 360 deg rotations",
                                 "default": 1.0,
                                 "minimum": 0.5,
                                 "maximum": 5.0,
@@ -647,13 +977,16 @@ class AvatarMCPServer:
                         "required": [],
                     },
                 ),
-                # Tracking and camera control tools
+
+                # ==============================================================================
+                # TRACKING AND CAMERA CONTROL TOOLS
+                # ==============================================================================
                 types.Tool(
                     name="set_gimbal",
                     description=(
                         "Control camera gimbal angles independently of drone. "
-                        "Set pitch (-90°=down, 0°=level, 30°=up), yaw (-180° to 180°), "
-                        "and roll (-45° to 45°). "
+                        "Set pitch (-90 deg=down, 0 deg=level, 30 deg=up), yaw (-180 deg to 180 deg), "
+                        "and roll (-45 deg to 45 deg). "
                         "Useful for looking at targets while flying."
                     ),
                     inputSchema={
@@ -892,7 +1225,10 @@ class AvatarMCPServer:
                         "required": ["center_lat", "center_lon"],
                     },
                 ),
-                # Cinematic shot tools
+
+                # ==============================================================================
+                # CINEMATIC SHOT TOOLS - Pre-programmed professional shots
+                # ==============================================================================
                 types.Tool(
                     name="execute_cinematic_shot",
                     description=(
@@ -901,7 +1237,7 @@ class AvatarMCPServer:
                         "Templates: orbit_close, orbit_wide, follow_close, follow_wide, "
                         "reveal_hero, pass_by_low, top_down_dynamic, height_locked_jump, "
                         "fpv_dynamic, snowboard_halfpipe, skate_ledge_gap. "
-                        "Features height-locked tracking (±0.2m) for tricks at specific heights."
+                        "Features height-locked tracking (0.2m) for tricks at specific heights."
                     ),
                     inputSchema={
                         "type": "object",
@@ -973,21 +1309,40 @@ class AvatarMCPServer:
                 ),
             ]
 
+        # ==============================================================================
+        # TOOL EXECUTION HANDLER
+        # ==============================================================================
+        # This handler responds to the MCP "tools/call" method.
+        # It routes tool calls to the appropriate implementation function.
+
         @self.server.call_tool()  # type: ignore[untyped-decorator]
         async def handle_call_tool(
             name: str, arguments: Dict[str, Any]
         ) -> List[types.TextContent]:
-            """Handle tool execution requests.
+            """Handle tool execution requests from MCP clients.
+
+            This is the entry point for all drone commands from Claude.
+            It validates the server is ready, routes to the appropriate
+            handler, and formats the response.
 
             Args:
-                name: Name of the tool to execute.
-                arguments: Tool arguments from the caller.
+                name: Name of the tool to execute (matches Tool.name from list_tools).
+                arguments: Tool arguments from the caller (validated against inputSchema).
 
             Returns:
-                List of TextContent with the result.
+                List of TextContent with the JSON-encoded result.
+
+            Error Handling:
+                All exceptions are caught and returned as error JSON.
+                This ensures the server stays running even if a tool fails.
             """
             try:
-                # Ensure server is initialized
+                # ==============================================================================
+                # PRE-EXECUTION VALIDATION
+                # ==============================================================================
+                # Ensure server is fully initialized before accepting commands.
+                # This prevents race conditions during startup.
+
                 if not self._initialized:
                     return [
                         types.TextContent(
@@ -999,12 +1354,20 @@ class AvatarMCPServer:
                         )
                     ]
 
-                # Route to appropriate handler
+                # ==============================================================================
+                # TOOL ROUTING
+                # ==============================================================================
+                # Delegate to _route_tool which contains the dispatch logic.
+                # This separation keeps the handler clean and enables testing.
+
                 result = await self._route_tool(name, arguments)
                 return [types.TextContent(type="text", text=result)]
 
             except Exception as e:
+                # Log full exception with traceback for debugging
                 logger.exception(f"Error executing tool {name}")
+
+                # Return error as JSON so client can handle it gracefully
                 return [
                     types.TextContent(
                         type="text",
@@ -1016,77 +1379,150 @@ class AvatarMCPServer:
                 ]
 
     async def _route_tool(self, name: str, arguments: Dict[str, Any]) -> str:
-        """Route tool call to appropriate handler.
+        """Route tool call to appropriate handler implementation.
+
+        This method acts as a switchboard, mapping tool names to the
+        actual implementation functions in the tools/ modules.
 
         Args:
-            name: Tool name.
-            arguments: Tool arguments.
+            name: Tool name from the MCP call.
+            arguments: Dictionary of arguments from JSON parsing.
 
         Returns:
-            JSON string result.
+            JSON string result from the tool execution.
+
+        Design Notes:
+            - Each tool extracts arguments with .get() providing defaults
+            - This handles optional parameters gracefully
+            - JSON Schema validation already occurred in MCP layer
+            - All tool functions are async and return JSON strings
         """
-        # Flight control tools
+        # ==============================================================================
+        # FLIGHT CONTROL TOOL HANDLERS
+        # ==============================================================================
+        # These tools control basic flight operations.
+        # All delegate to functions in flight_tools module.
+
         if name == "arm_and_takeoff":
-            return await arm_and_takeoff(arguments.get("altitude_m", 10.0))
+            # Arm motors and takeoff to specified altitude
+            return json.dumps(await self.flight_tools.arm_and_takeoff(
+                arguments.get("altitude_m", 10.0)
+            ))
 
         elif name == "land":
-            return await land()
+            # Land at current position
+            return json.dumps(await self.flight_tools.land())
 
         elif name == "rtl":
-            return await rtl()
+            # Return to launch position and land
+            return json.dumps(await self.flight_tools.rtl())
 
         elif name == "abort_mission":
-            return await abort_mission(arguments.get("reason", ""))
+            # Emergency stop - hover in place
+            return json.dumps(await self.flight_tools.abort_mission(
+                arguments.get("reason", "")
+            ))
 
         elif name == "goto_gps":
-            return await goto_gps(
+            # Navigate to GPS coordinates
+            return json.dumps(await self.flight_tools.goto_gps(
                 lat=arguments.get("lat", 0.0),
                 lon=arguments.get("lon", 0.0),
-                alt_m=arguments.get("alt_m", 0.0),
+                alt_m=arguments.get("alt_m", 0.0) or None,
                 speed_ms=arguments.get("speed_ms", 5.0),
-            )
+            ))
 
         elif name == "fly_body_offset":
-            return await fly_body_offset(
+            # Move relative to current body frame
+            return json.dumps(await self.flight_tools.fly_body_offset(
                 forward_m=arguments.get("forward_m", 0.0),
                 right_m=arguments.get("right_m", 0.0),
                 up_m=arguments.get("up_m", 0.0),
                 yaw_align=arguments.get("yaw_align", False),
                 speed_m_s=arguments.get("speed_m_s", 5.0),
-            )
+            ))
 
         elif name == "set_velocity":
-            return await set_velocity(
+            # Set velocity setpoint in NED frame (offboard mode)
+            return json.dumps(await self.flight_tools.set_velocity(
                 north_m_s=arguments.get("north_m_s", 0.0),
                 east_m_s=arguments.get("east_m_s", 0.0),
                 down_m_s=arguments.get("down_m_s", 0.0),
                 yaw_deg=arguments.get("yaw_deg", 0.0),
                 duration_s=arguments.get("duration_s", 1.0),
-            )
+            ))
 
         elif name == "hold":
-            return await hold(
+            # Hold position with optional monitoring
+            return json.dumps(await self.flight_tools.hold(
                 duration_s=arguments.get("duration_s", 5.0),
                 position_tolerance_m=arguments.get("position_tolerance_m", 1.0),
                 auto_rtl_on_drift=arguments.get("auto_rtl_on_drift", False),
-            )
+            ))
 
-        # Telemetry tools
+        # ==============================================================================
+        # TELEMETRY TOOL HANDLERS
+        # ==============================================================================
+
         elif name == "get_telemetry":
+            # Get current telemetry from cache
+            telemetry = self.telemetry_cache.get_data()
+            if telemetry is not None:
+                return json.dumps({
+                    "success": True,
+                    "position": {
+                        "latitude_deg": telemetry.latitude,
+                        "longitude_deg": telemetry.longitude,
+                        "absolute_altitude_m": telemetry.altitude,
+                        "relative_altitude_m": telemetry.altitude,
+                    },
+                    "velocity": {
+                        "north_m_s": telemetry.velocity_north,
+                        "east_m_s": telemetry.velocity_east,
+                        "down_m_s": telemetry.velocity_down,
+                        "groundspeed_m_s": telemetry.groundspeed,
+                    },
+                    "attitude": {
+                        "roll_deg": telemetry.roll,
+                        "pitch_deg": telemetry.pitch,
+                        "yaw_deg": telemetry.yaw,
+                    },
+                    "battery": {
+                        "remaining_percent": telemetry.battery_percent,
+                        "voltage_v": telemetry.battery_voltage,
+                    },
+                    "flight_mode": telemetry.flight_mode,
+                    "armed": telemetry.armed,
+                    "in_air": telemetry.in_air,
+                    "is_stale": self.telemetry_cache.is_stale(),
+                    "age_ms": self.telemetry_cache.get_age_ms(),
+                })
             return await get_telemetry()
 
-        # Vision tools
+        # ==============================================================================
+        # VISION TOOL HANDLERS
+        # ==============================================================================
+
         elif name == "detect_objects":
+            # Run YOLO detection
             return await detect_objects(arguments.get("confidence_threshold", 0.5))
 
         elif name == "get_detected_objects":
+            # Get cached detection results
             return await get_detected_objects()
 
-        # Status tool
+        # ==============================================================================
+        # STATUS TOOL HANDLER
+        # ==============================================================================
+
         elif name == "get_status":
+            # Return comprehensive server status
             return json.dumps(self.get_status())
 
-        # Acrobatic tools
+        # ==============================================================================
+        # ACROBATIC TOOL HANDLERS
+        # ==============================================================================
+
         elif name == "front_flip":
             return await front_flip()
 
@@ -1108,7 +1544,10 @@ class AvatarMCPServer:
         elif name == "corkscrew":
             return await corkscrew(arguments.get("rotations", 1.0))
 
-        # Tracking and camera control tools
+        # ==============================================================================
+        # TRACKING AND CAMERA TOOL HANDLERS
+        # ==============================================================================
+
         elif name == "set_gimbal":
             return await set_gimbal(
                 pitch_deg=arguments.get("pitch_deg", -45.0),
@@ -1161,7 +1600,10 @@ class AvatarMCPServer:
                 speed_m_s=arguments.get("speed_m_s", 5.0)
             )
 
-        # Cinematic shot tools
+        # ==============================================================================
+        # CINEMATIC SHOT TOOL HANDLERS
+        # ==============================================================================
+
         elif name == "execute_cinematic_shot":
             return await execute_cinematic_shot(
                 template_name=arguments.get("template_name", ""),
@@ -1183,20 +1625,31 @@ class AvatarMCPServer:
             )
 
         else:
+            # Unknown tool name - return error
             return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
     async def initialize(self) -> bool:
         """Initialize all components and start services.
 
-        This method:
-        1. Connects to the drone via ConnectionManager
-        2. Starts the TelemetryCache with the configured refresh interval
-        3. Starts the HeartbeatService with 20Hz emission
-        4. Initializes the FlightStateMachine
-        5. Starts the AsyncGuardian monitoring
+        This method performs the full startup sequence:
+        1. Connect to drone via ConnectionManager (with retries)
+        2. Start TelemetryCache with the configured refresh interval
+        3. Start HeartbeatService at 20Hz for offboard mode
+        4. Initialize FlightStateMachine from current telemetry
+        5. Start AsyncGuardian safety monitoring
+
+        Each step is logged for debugging. If any step fails,
+        _cleanup_partial() is called to release resources.
 
         Returns:
             True if initialization successful, False otherwise.
+
+        Example:
+            server = AvatarMCPServer()
+            if await server.initialize():
+                print("Ready for flight!")
+            else:
+                print("Failed to start")
         """
         if self._initialized:
             logger.debug("Server already initialized")
@@ -1205,7 +1658,17 @@ class AvatarMCPServer:
         try:
             logger.info("Initializing Avatar MCP Server...")
 
-            # Step 1: Connect to drone
+            if not self.config.connect_on_start:
+                logger.info("Starting in offline MCP discovery mode; drone connection deferred")
+                self._initialized = True
+                return True
+
+            # ==============================================================================
+            # STEP 1: CONNECT TO DRONE
+            # ==============================================================================
+            # Establish MAVSDK connection to PX4.
+            # This is the foundation - everything else depends on this.
+
             logger.info(f"Connecting to drone at {self.config.system_address}...")
             connected = await self.connection_manager.connect(
                 system_address=self.config.system_address,
@@ -1217,7 +1680,12 @@ class AvatarMCPServer:
                 return False
             logger.info("Connected to drone successfully")
 
-            # Step 2: Start telemetry cache
+            # ==============================================================================
+            # STEP 2: START TELEMETRY CACHE
+            # ==============================================================================
+            # Start background task that refreshes telemetry every 100ms.
+            # This provides fast, non-blocking access to drone state.
+
             logger.info(f"Starting telemetry cache ({self.config.telemetry_refresh_ms}ms refresh)...")
 
             async def telemetry_provider() -> TelemetryData:
@@ -1230,17 +1698,32 @@ class AvatarMCPServer:
             await self.telemetry_cache.start(telemetry_provider)
             logger.info("Telemetry cache started")
 
-            # Step 3: Start heartbeat service (20Hz)
+            # ==============================================================================
+            # STEP 3: START HEARTBEAT SERVICE
+            # ==============================================================================
+            # Start 20Hz heartbeat emission.
+            # REQUIRED for PX4 offboard mode - without this, PX4 triggers failsafe.
+
             logger.info(f"Starting heartbeat service ({self.config.heartbeat_hz}Hz)...")
             await self.heartbeat_service.start()
             logger.info("Heartbeat service started")
 
-            # Step 4: Initialize state machine from telemetry
+            # ==============================================================================
+            # STEP 4: INITIALIZE STATE MACHINE
+            # ==============================================================================
+            # Sync flight state machine from current telemetry.
+            # This ensures state transitions are valid from the start.
+
             logger.info("Initializing state machine...")
             await self._sync_state_machine_from_telemetry()
             logger.info(f"State machine initialized: {self.state_machine.current_state_name}")
 
-            # Step 5: Start guardian monitoring
+            # ==============================================================================
+            # STEP 5: START GUARDIAN MONITORING
+            # ==============================================================================
+            # Start background safety monitoring.
+            # Guardian watches for dangerous conditions and can trigger failsafe.
+
             if self.config.enable_guardian:
                 logger.info("Starting AsyncGuardian monitoring...")
                 await self.guardian.start()
@@ -1252,12 +1735,17 @@ class AvatarMCPServer:
 
         except Exception as e:
             logger.exception(f"Initialization failed: {e}")
-            # Cleanup on failure
+            # Cleanup on failure to prevent resource leaks
             await self._cleanup_partial()
             return False
 
     async def _sync_state_machine_from_telemetry(self) -> None:
-        """Sync state machine from current telemetry."""
+        """Sync state machine from current telemetry.
+
+        This ensures the state machine reflects reality before accepting
+        commands. For example, if drone is already armed, we start in
+        ARMED state rather than INIT.
+        """
         try:
             # Get fresh telemetry data
             data = await self.telemetry_cache.get_fresh_data(max_age_ms=1000)
@@ -1280,7 +1768,11 @@ class AvatarMCPServer:
             )
 
     async def _cleanup_partial(self) -> None:
-        """Cleanup partial initialization on failure."""
+        """Cleanup partial initialization on failure.
+
+        Called when initialization fails partway through.
+        Stops any services that were started and releases resources.
+        """
         logger.info("Cleaning up partial initialization...")
 
         try:
@@ -1307,11 +1799,14 @@ class AvatarMCPServer:
         """Graceful shutdown of all components.
 
         Cleanup order (reverse of initialization):
-        1. Stop AsyncGuardian monitoring
-        2. Stop HeartbeatService
-        3. Stop TelemetryCache
-        4. Disconnect from drone
-        5. Reset state
+        1. Stop AsyncGuardian monitoring (safety first)
+        2. Stop HeartbeatService (20Hz emission)
+        3. Stop TelemetryCache (data refresh)
+        4. Disconnect from drone (close MAVSDK)
+        5. Reset state flags
+
+        Each step is wrapped in try-catch to ensure we attempt
+        all cleanup even if one step fails.
         """
         if not self._initialized:
             logger.debug("Server not initialized, nothing to shutdown")
@@ -1319,7 +1814,9 @@ class AvatarMCPServer:
 
         logger.info("Shutting down Avatar MCP Server...")
 
-        # Step 1: Stop guardian (safety monitoring first)
+        # ==============================================================================
+        # STEP 1: STOP GUARDIAN (safety monitoring first)
+        # ==============================================================================
         if self.config.enable_guardian:
             logger.info("Stopping guardian...")
             try:
@@ -1328,7 +1825,9 @@ class AvatarMCPServer:
             except Exception as e:
                 logger.warning(f"Error stopping guardian: {e}")
 
-        # Step 2: Stop heartbeat service
+        # ==============================================================================
+        # STEP 2: STOP HEARTBEAT SERVICE
+        # ==============================================================================
         logger.info("Stopping heartbeat service...")
         try:
             await self.heartbeat_service.stop()
@@ -1336,7 +1835,9 @@ class AvatarMCPServer:
         except Exception as e:
             logger.warning(f"Error stopping heartbeat service: {e}")
 
-        # Step 3: Stop telemetry cache
+        # ==============================================================================
+        # STEP 3: STOP TELEMETRY CACHE
+        # ==============================================================================
         logger.info("Stopping telemetry cache...")
         try:
             await self.telemetry_cache.stop()
@@ -1344,7 +1845,9 @@ class AvatarMCPServer:
         except Exception as e:
             logger.warning(f"Error stopping telemetry cache: {e}")
 
-        # Step 4: Disconnect from drone
+        # ==============================================================================
+        # STEP 4: DISCONNECT FROM DRONE
+        # ==============================================================================
         logger.info("Disconnecting from drone...")
         try:
             await self.connection_manager.disconnect()
@@ -1361,12 +1864,22 @@ class AvatarMCPServer:
     async def run(self) -> None:
         """Run the MCP server using stdio transport.
 
-        This is the main entry point for the server. It starts
-        listening for MCP protocol messages on stdin/stdout.
+        This is the main entry point for the server. It:
+        1. Verifies the server is initialized
+        2. Creates stdio transport for MCP communication
+        3. Starts the MCP server with initialization options
+        4. Listens for MCP messages until shutdown
+
+        This method blocks until the server is shutdown via signal
+        or client disconnection.
 
         Note:
             This method blocks until the server is shutdown.
             Call initialize() before calling run().
+
+        Example:
+            await server.initialize()
+            await server.run()  # Blocks here
         """
         if not self._initialized:
             logger.error("Server not initialized. Call initialize() first.")
@@ -1379,7 +1892,14 @@ class AvatarMCPServer:
 
         logger.info("Starting Avatar MCP Server (stdio transport)")
 
+        # ==============================================================================
+        # STDIO TRANSPORT SETUP
+        # ==============================================================================
+        # stdio_server() creates stdin/stdout streams for MCP communication.
+        # This is the standard transport for MCP servers run as subprocesses.
+
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            # Run the server with initialization options
             await self.server.run(
                 read_stream,
                 write_stream,
@@ -1393,8 +1913,40 @@ class AvatarMCPServer:
                 ),
             )
 
+    async def _handle_guardian_failsafe(self, action: SafetyAction, reason: str) -> None:
+        """Execute a physical MAVSDK recovery action requested by AsyncGuardian."""
+        drone = await self.connection_manager.get_drone()
+        if drone is None:
+            logger.error(
+                "Guardian requested %s but no drone is connected: %s",
+                action.value,
+                reason,
+            )
+            return
+
+        logger.warning("Executing Guardian failsafe action %s: %s", action.value, reason)
+
+        if action == SafetyAction.RTL:
+            await drone.action.return_to_launch()
+        elif action == SafetyAction.LAND:
+            await drone.action.land()
+        elif action == SafetyAction.HOLD:
+            await drone.action.hold()
+        elif action == SafetyAction.EMERGENCY_STOP:
+            terminate = getattr(drone.action, "terminate", None)
+            kill = getattr(drone.action, "kill", None)
+            if terminate is not None:
+                await terminate()
+            elif kill is not None:
+                await kill()
+            else:
+                logger.critical("No MAVSDK emergency stop action is available")
+
     def get_status(self) -> Dict[str, Any]:
         """Get comprehensive server status.
+
+        Returns a dictionary containing the current state of all
+        components. Useful for health checks and debugging.
 
         Returns:
             Dictionary containing:
@@ -1404,10 +1956,16 @@ class AvatarMCPServer:
             - heartbeat: HeartbeatService metrics
             - state_machine: Current flight state
             - guardian: Guardian status (if enabled)
+
+        Example:
+            status = server.get_status()
+            print(f"Connection: {status['connection']['state']}")
+            print(f"Battery: {status['telemetry']['battery_percent']}%")
         """
         status: Dict[str, Any] = {
             "initialized": self._initialized,
             "connection": {
+                "mode": "connected" if self.config.connect_on_start else "offline",
                 "state": self.connection_manager.state.name,
                 "health": {
                     "is_healthy": self.connection_manager.health.is_healthy,
@@ -1425,6 +1983,7 @@ class AvatarMCPServer:
             },
         }
 
+        # Add guardian status if enabled
         if self.config.enable_guardian:
             guardian_status = self.guardian.get_status()
             # Convert Alert dataclasses to dicts for JSON serialization
@@ -1468,6 +2027,17 @@ class AvatarMCPServer:
 
         return status
 
+    # ==============================================================================
+    # ASYNC CONTEXT MANAGER SUPPORT
+    # ==============================================================================
+    # Enables "async with" syntax for automatic initialization and cleanup.
+    #
+    # Example:
+    #     async with AvatarMCPServer() as server:
+    #         # Server is initialized here
+    #         await server.run()
+    #     # Server is automatically shut down here
+
     async def __aenter__(self) -> "AvatarMCPServer":
         """Async context manager entry.
 
@@ -1486,9 +2056,17 @@ class AvatarMCPServer:
         await self.shutdown()
 
 
-# Legacy DroneMCPServer for backward compatibility
+# ==============================================================================
+# LEGACY BACKWARD COMPATIBILITY
+# ==============================================================================
+# DroneMCPServer was the original name. This alias maintains compatibility
+# with existing code while encouraging migration to AvatarMCPServer.
+
 class DroneMCPServer(AvatarMCPServer):
-    """Legacy alias for AvatarMCPServer."""
+    """Legacy alias for AvatarMCPServer.
+
+    Deprecated: Use AvatarMCPServer instead.
+    """
 
     def __init__(self, config: Optional[AvatarMCPServerConfig] = None):
         """Initialize with deprecation warning."""
@@ -1498,9 +2076,19 @@ class DroneMCPServer(AvatarMCPServer):
         super().__init__(config)
 
 
+# ==============================================================================
+# MAIN ENTRY POINT
+# ==============================================================================
+# When this file is run directly (python -m avatar.mcp_server.server),
+# this main function creates and runs the server.
+
 async def main() -> None:
-    """Main entry point for running the server."""
-    server = AvatarMCPServer()
+    """Main entry point for running the server.
+
+    Creates server, initializes it, runs until shutdown.
+    Handles cleanup in finally block to ensure resources are released.
+    """
+    server = AvatarMCPServer(AvatarMCPServerConfig.from_env())
 
     # Initialize server
     if not await server.initialize():
@@ -1508,12 +2096,13 @@ async def main() -> None:
         return
 
     try:
-        # Run server
+        # Run server - blocks until shutdown
         await server.run()
     finally:
-        # Ensure shutdown
+        # Ensure shutdown happens even if run() raises exception
         await server.shutdown()
 
 
 if __name__ == "__main__":
+    # Run the async main function
     asyncio.run(main())
