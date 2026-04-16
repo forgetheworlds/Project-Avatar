@@ -66,6 +66,7 @@ from avatar.mav.guardian import GuardianProcess, HardLimits
 from avatar.mav.state_machine import FlightStateMachine, FlightState
 from avatar.mav.connection_manager import ConnectionManager
 from avatar.mav.offboard_streamer import OffboardVelocityStreamer
+from avatar.mcp_server.errors import ErrorCode, to_error_envelope
 
 if TYPE_CHECKING:
     from avatar.mcp_server.compat import DroneConnection
@@ -120,6 +121,7 @@ logger = logging.getLogger(__name__)
 # These allow the flight tools to integrate with the server's state management
 _state_machine: Optional[FlightStateMachine] = None
 _telemetry_cache: Optional[Any] = None
+_confirmation_manager: Optional[Any] = None  # D2.6: ConfirmationManager reference
 
 
 def set_state_machine(sm: FlightStateMachine) -> None:
@@ -159,6 +161,24 @@ def set_telemetry_cache(cache: Any) -> None:
     _telemetry_cache = cache
 
 
+def set_confirmation_manager(manager: Any) -> None:
+    """Set the global confirmation manager reference.
+
+    D2.6: The confirmation manager provides human-in-the-loop confirmation
+    for dangerous operations like arming and takeoff.
+
+    Args:
+        manager: The ConfirmationManager instance.
+
+    Example:
+        >>> from avatar.mcp_server.confirmation import ConfirmationManager
+        >>> manager = ConfirmationManager()
+        >>> set_confirmation_manager(manager)
+    """
+    global _confirmation_manager
+    _confirmation_manager = manager
+
+
 def get_state_machine() -> Optional[FlightStateMachine]:
     """Get the global state machine instance.
 
@@ -177,6 +197,18 @@ def get_telemetry_cache() -> Optional[Any]:
         When None, flight tools will query MAVSDK directly (slower).
     """
     return _telemetry_cache
+
+
+def get_confirmation_manager() -> Optional[Any]:
+    """Get the global confirmation manager instance.
+
+    D2.6: Used by flight tools to request confirmation for dangerous operations.
+
+    Returns:
+        ConfirmationManager instance if set, None otherwise.
+        When None, operations proceed without confirmation (not recommended).
+    """
+    return _confirmation_manager
 
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -444,10 +476,12 @@ class FlightTools:
             # Attempt to get or establish connection
             drone = await cm.ensure_connected()
             if drone is None:
-                return {
-                    "success": False,
-                    "error": "Failed to connect to drone. Ensure SITL or hardware is running.",
-                }
+                return to_error_envelope(
+                    ErrorCode.MAV_NOT_CONNECTED,
+                    "Failed to connect to drone. Ensure SITL or hardware is running.",
+                    recoverable=True,
+                    suggested_action="Start PX4 SITL or connect hardware",
+                )
 
             # Wrap MAVSDK System in DroneConnection for compatibility
             if self._drone is None:
@@ -472,10 +506,12 @@ class FlightTools:
             return {}
 
         except ConnectionError as e:
-            return {
-                "success": False,
-                "error": f"Failed to connect to drone: {e}",
-            }
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                f"Failed to connect to drone: {e}",
+                recoverable=True,
+                suggested_action="Check drone connection and retry",
+            )
 
     async def _heartbeat_loop(self) -> None:
         """Background task to update GuardianProcess heartbeat at 20Hz.
@@ -562,7 +598,49 @@ class FlightTools:
             "altitude_amsl_m": altitude
         })
         if not is_valid:
-            return {"success": False, "error": reason}
+            return to_error_envelope(
+                ErrorCode.GUARDIAN_VIOLATION,
+                reason,
+                recoverable=False,
+                suggested_action="Reduce altitude to within safety limits",
+            )
+
+        # D2.6: Require confirmation before arming
+        # This is a destructive/irreversible action that needs human approval
+        confirmation_mgr = get_confirmation_manager()
+        if confirmation_mgr is not None:
+            try:
+                token = await confirmation_mgr.require(
+                    action="arm_and_takeoff",
+                    destructive=True,
+                    summary=f"Arm motors and takeoff to {altitude}m",
+                    payload={"altitude_m": altitude}
+                )
+                response = confirmation_mgr.get_pending(token.token)
+                confirmation_mgr.clear_pending(token.token)
+
+                if response is None or not response.get("approved", False):
+                    note = response.get("note", "") if response else ""
+                    logger.info(f"Arm and takeoff rejected by operator: {note}")
+                    return {
+                        "success": False,
+                        "error": "Operation rejected by operator",
+                        "note": note,
+                        "requires_confirmation": True,
+                    }
+            except asyncio.TimeoutError:
+                logger.warning("Arm and takeoff confirmation timed out")
+                return {
+                    "success": False,
+                    "error": "Confirmation timed out",
+                    "requires_confirmation": True,
+                }
+        else:
+            # No confirmation manager - proceed with warning
+            logger.warning(
+                "arm_and_takeoff called without ConfirmationManager - "
+                "proceeding without confirmation (not recommended)"
+            )
 
         # Establish MAVSDK connection
         conn_error = await self._ensure_connection()
@@ -570,7 +648,12 @@ class FlightTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Establish connection before flight operations",
+            )
 
         drone = self._drone.drone
 
@@ -578,10 +661,12 @@ class FlightTools:
         logger.info("Waiting for drone health checks...")
         health_ok = await self._drone.wait_for_health()
         if not health_ok:
-            return {
-                "success": False,
-                "error": "Health check failed - no GPS lock or home position",
-            }
+            return to_error_envelope(
+                ErrorCode.PREFLIGHT_BLOCKED,
+                "Health check failed - no GPS lock or home position",
+                recoverable=True,
+                suggested_action="Wait for GPS lock before takeoff",
+            )
 
         # Set home position from current GPS reading
         # This is critical for RTL (return to launch) safety feature
@@ -609,7 +694,12 @@ class FlightTools:
                 )
             logger.info("Drone armed - motors ready")
         except Exception as e:
-            return {"success": False, "error": f"Failed to arm: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"Failed to arm: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry arming",
+            )
 
         # Set takeoff altitude in MAVSDK
         await drone.action.set_takeoff_altitude(altitude)
@@ -637,7 +727,12 @@ class FlightTools:
             }
 
         except Exception as e:
-            return {"success": False, "error": f"Takeoff failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"Takeoff failed: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry takeoff",
+            )
 
     async def _monitor_takeoff(self, altitude: float) -> None:
         """Background task to monitor takeoff completion.
@@ -743,7 +838,12 @@ class FlightTools:
         try:
             validate_gps(lat, lon)
         except ValueError as e:
-            return {"success": False, "error": str(e)}
+            return to_error_envelope(
+                ErrorCode.SCHEMA_VALIDATION_FAILED,
+                str(e),
+                recoverable=False,
+                suggested_action="Provide valid GPS coordinates",
+            )
 
         speed = speed_ms or self.config.default_goto_speed_m_s
 
@@ -753,7 +853,12 @@ class FlightTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Establish connection before flight operations",
+            )
 
         drone = self._drone.drone
 
@@ -784,7 +889,12 @@ class FlightTools:
             "speed_m_s": speed,
         })
         if not is_valid:
-            return {"success": False, "error": reason}
+            return to_error_envelope(
+                ErrorCode.GUARDIAN_VIOLATION,
+                reason,
+                recoverable=False,
+                suggested_action="Adjust target position to within safety limits",
+            )
 
         try:
             set_maximum_speed = getattr(drone.action, "set_maximum_speed", None)
@@ -814,7 +924,12 @@ class FlightTools:
             }
 
         except Exception as e:
-            return {"success": False, "error": f"Navigation failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"Navigation failed: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry navigation",
+            )
 
     async def land(self) -> dict[str, Any]:
         """Command drone to land at current position.
@@ -864,7 +979,12 @@ class FlightTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Establish connection before flight operations",
+            )
 
         drone = self._drone.drone
 
@@ -879,7 +999,12 @@ class FlightTools:
             }
 
         except Exception as e:
-            return {"success": False, "error": f"Landing failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"Landing failed: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry landing",
+            )
 
     async def rtl(self) -> dict[str, Any]:
         """Command drone to Return to Launch (RTL) position and land.
@@ -941,7 +1066,12 @@ class FlightTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Establish connection before flight operations",
+            )
 
         drone = self._drone.drone
 
@@ -960,7 +1090,12 @@ class FlightTools:
             }
 
         except Exception as e:
-            return {"success": False, "error": f"RTL failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"RTL failed: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry RTL",
+            )
 
     async def abort_mission(self, reason: Optional[str] = None) -> dict[str, Any]:
         """Abort current mission and hover in place.
@@ -1019,7 +1154,12 @@ class FlightTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Establish connection before flight operations",
+            )
 
         drone = self._drone.drone
 
@@ -1038,7 +1178,12 @@ class FlightTools:
             }
 
         except Exception as e:
-            return {"success": False, "error": f"Abort failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"Abort failed: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry abort",
+            )
 
     async def hold(
         self,
@@ -1126,7 +1271,12 @@ class FlightTools:
         # Check state precondition - must be in appropriate state for holding
         sm = self.state_machine
         if not sm.check_command_precondition("hold"):
-            return {"success": False, "error": f"Cannot hold in state {sm.current_state_name}"}
+            return to_error_envelope(
+                ErrorCode.PREFLIGHT_BLOCKED,
+                f"Cannot hold in state {sm.current_state_name}",
+                recoverable=False,
+                suggested_action="Ensure drone is in a valid flight state for holding",
+            )
 
         # Get initial position from telemetry cache (fast) or drone directly
         initial_lat: Optional[float] = None
@@ -1157,10 +1307,20 @@ class FlightTools:
                     break  # Single reading sufficient
             except Exception as e:
                 logger.warning(f"Could not get initial position: {e}")
-                return {"success": False, "error": f"Could not get initial position: {e}"}
+                return to_error_envelope(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"Could not get initial position: {e}",
+                    recoverable=True,
+                    suggested_action="Retry hold command",
+                )
 
         if initial_lat is None or initial_lon is None:
-            return {"success": False, "error": "Could not determine initial position"}
+            return to_error_envelope(
+                ErrorCode.INTERNAL_ERROR,
+                "Could not determine initial position",
+                recoverable=True,
+                suggested_action="Check GPS lock and retry hold",
+            )
 
         # Send hold command to drone if connected
         if self._connected and self._drone and self._drone.drone:
@@ -1204,13 +1364,13 @@ class FlightTools:
                     if auto_rtl_on_drift:
                         logger.warning(f"Drift {drift:.1f}m exceeds tolerance, triggering RTL")
                         sm.trigger_failsafe("position_drift")
-                        return {
-                            "success": False,
-                            "reason": "rtl_triggered_due_to_drift",
-                            "drift_m": drift,
-                            "max_drift_m": max_drift,
-                            "state": sm.current_state_name,
-                        }
+                        return to_error_envelope(
+                            ErrorCode.GUARDIAN_VIOLATION,
+                            f"RTL triggered due to position drift: {drift:.1f}m exceeds tolerance",
+                            recoverable=False,
+                            suggested_action="Drone is returning to launch",
+                            details={"drift_m": drift, "max_drift_m": max_drift, "state": sm.current_state_name},
+                        )
 
             await asyncio.sleep(0.1)  # 10Hz monitoring rate
 
@@ -1327,16 +1487,23 @@ class FlightTools:
         """
         # Check state precondition - must be in a flying state to move
         if not self.state_machine.check_command_precondition("set_position"):
-            return {
-                "success": False,
-                "error": f"State precondition failed: Cannot move in {self.state_machine.current_state_name} state. Must be in a flying state (HOVERING, FLYING, POSITION_CONTROL, etc.)"
-            }
+            return to_error_envelope(
+                ErrorCode.PREFLIGHT_BLOCKED,
+                f"Cannot move in {self.state_machine.current_state_name} state. Must be in a flying state",
+                recoverable=False,
+                suggested_action="Ensure drone is in a flying state before movement",
+            )
 
         # Validate speed against Guardian limits
         speed = speed_m_s or self.config.default_body_offset_speed_m_s
         is_valid, reason = self.guardian.validate_command({"speed_m_s": speed})
         if not is_valid:
-            return {"success": False, "error": reason}
+            return to_error_envelope(
+                ErrorCode.GUARDIAN_VIOLATION,
+                reason,
+                recoverable=False,
+                suggested_action="Reduce speed to within safety limits",
+            )
 
         # Establish connection
         conn_error = await self._ensure_connection()
@@ -1344,7 +1511,12 @@ class FlightTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Establish connection before flight operations",
+            )
 
         drone = self._drone.drone
 
@@ -1370,7 +1542,12 @@ class FlightTools:
                 break
 
             if current_lat is None or current_lon is None:
-                return {"success": False, "error": "Failed to get current position"}
+                return to_error_envelope(
+                    ErrorCode.INTERNAL_ERROR,
+                    "Failed to get current position",
+                    recoverable=True,
+                    suggested_action="Retry body offset command",
+                )
 
             # Transform body offset to NED frame using current yaw
             north_offset, east_offset = body_to_ned(forward_m, right_m, current_yaw)
@@ -1392,7 +1569,12 @@ class FlightTools:
                 "altitude_amsl_m": target_alt,
             })
             if not is_valid:
-                return {"success": False, "error": f"Target position invalid: {reason}"}
+                return to_error_envelope(
+                    ErrorCode.GUARDIAN_VIOLATION,
+                    f"Target position invalid: {reason}",
+                    recoverable=False,
+                    suggested_action="Adjust target position to within geofence",
+                )
 
             # Calculate target yaw if alignment requested
             target_yaw_deg = current_yaw
@@ -1460,7 +1642,12 @@ class FlightTools:
 
         except Exception as e:
             logger.error(f"Body offset movement failed: {e}")
-            return {"success": False, "error": f"Body offset movement failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_COMMAND_REJECTED,
+                f"Body offset movement failed: {e}",
+                recoverable=True,
+                suggested_action="Check drone status and retry movement",
+            )
 
     async def set_velocity(
         self,
@@ -1567,9 +1754,19 @@ class FlightTools:
         # Validate velocity limits
         horizontal_speed = sqrt(north_m_s**2 + east_m_s**2)
         if horizontal_speed > 15.0:
-            return {"success": False, "error": "Horizontal speed exceeds 15 m/s limit"}
+            return to_error_envelope(
+                ErrorCode.GUARDIAN_VIOLATION,
+                "Horizontal speed exceeds 15 m/s limit",
+                recoverable=False,
+                suggested_action="Reduce horizontal speed to 15 m/s or less",
+            )
         if abs(down_m_s) > 3.0:
-            return {"success": False, "error": "Vertical speed exceeds 3 m/s limit"}
+            return to_error_envelope(
+                ErrorCode.GUARDIAN_VIOLATION,
+                "Vertical speed exceeds 3 m/s limit",
+                recoverable=False,
+                suggested_action="Reduce vertical speed to 3 m/s or less",
+            )
 
         # State check - only allow in flying states (not on ground)
         valid_states = {
@@ -1581,11 +1778,13 @@ class FlightTools:
             FlightState.HOLD,
         }
         if self.state_machine.current_state not in valid_states:
-            return {
-                "success": False,
-                "error": f"Cannot set_velocity in state {self.state_machine.current_state_name}. "
-                        f"Must be in one of: {[s.name for s in valid_states]}"
-            }
+            return to_error_envelope(
+                ErrorCode.PREFLIGHT_BLOCKED,
+                f"Cannot set_velocity in state {self.state_machine.current_state_name}. "
+                f"Must be in one of: {[s.name for s in valid_states]}",
+                recoverable=False,
+                suggested_action="Ensure drone is in a flying state before velocity control",
+            )
 
         # Transition to VELOCITY_CONTROL state
         self.state_machine.transition(
@@ -1599,7 +1798,12 @@ class FlightTools:
         try:
             drone = await cm.ensure_connected()
         except ConnectionError as e:
-            return {"success": False, "error": f"Not connected to drone: {e}"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                f"Not connected to drone: {e}",
+                recoverable=True,
+                suggested_action="Establish connection before velocity control",
+            )
 
         # Prepare velocity setpoint for MAVSDK
         yaw = yaw_deg if yaw_deg is not None else 0.0
@@ -1611,7 +1815,12 @@ class FlightTools:
         )
 
         if setpoint_count == 0:
-            return {"success": False, "error": "Failed to start offboard mode"}
+            return to_error_envelope(
+                ErrorCode.OFFBOARD_OWNERSHIP_CONFLICT,
+                "Failed to start offboard mode",
+                recoverable=True,
+                suggested_action="Check drone status and retry velocity command",
+            )
 
         return {
             "success": True,

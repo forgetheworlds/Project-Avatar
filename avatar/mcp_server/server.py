@@ -312,6 +312,14 @@ from avatar.mcp_server.tools.cinematic_shots import (
     execute_cinematic_shot, list_cinematic_templates, preview_cinematic_shot
 )
 
+# Meta: Server health and operation management
+from avatar.mcp_server.tools.meta_tools import (
+    ping, async_ping, cancel_operation, async_cancel_operation
+)
+
+# D2.6: ConfirmationManager for human-in-the-loop confirmation
+from avatar.mcp_server.confirmation import ConfirmationManager, ConfirmationConfig
+
 # ==============================================================================
 # LOGGING CONFIGURATION
 # ==============================================================================
@@ -346,7 +354,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
     types.Tool objects defining all available drone control capabilities.
 
     Returns:
-        List of types.Tool objects with name, description, and inputSchema.
+        List of types.Tool objects with name, description, inputSchema,
+        outputSchema, and annotations.
 
     Example:
         tools = avatar_mcp_tool_definitions()
@@ -354,6 +363,68 @@ def avatar_mcp_tool_definitions() -> List[Any]:
         for tool in tools:
             print(f"  - {tool.name}")
     """
+    # ==============================================================================
+    # COMMON ANNOTATION PATTERNS (D3.2-D3.4)
+    # ==============================================================================
+    # Annotations provide hints to MCP clients about tool behavior:
+    # - readOnlyHint: True if tool only reads data, doesn't modify state
+    # - destructiveHint: True if tool can cause irreversible changes
+    # - idempotentHint: True if multiple calls have same effect as one
+    # - openWorldHint: True if tool interacts with external world
+
+    READ_ONLY_ANNOTATIONS = {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+    FLIGHT_CONTROL_ANNOTATIONS = {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    }
+
+    NAVIGATION_ANNOTATIONS = {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    }
+
+    VISION_ANNOTATIONS = {
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    }
+
+    EMERGENCY_ANNOTATIONS = {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    }
+
+    # Standard output schema (D3.3)
+    STANDARD_OUTPUT_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "isError": {"type": "boolean"},
+            "error": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "category": {"type": "string"},
+                    "message": {"type": "string"},
+                    "recoverable": {"type": "boolean"},
+                    "suggestedAction": {"type": "string"},
+                },
+            },
+        },
+    }
+
     return [
         # ==============================================================================
         # FLIGHT CONTROL TOOLS - Basic flight operations
@@ -379,6 +450,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="get_telemetry",
@@ -392,6 +465,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
         ),
         types.Tool(
             name="land",
@@ -405,6 +480,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=EMERGENCY_ANNOTATIONS,
         ),
         types.Tool(
             name="rtl",
@@ -418,6 +495,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=EMERGENCY_ANNOTATIONS,
         ),
         types.Tool(
             name="abort_mission",
@@ -436,6 +515,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=EMERGENCY_ANNOTATIONS,
         ),
         types.Tool(
             name="goto_gps",
@@ -470,6 +551,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["lat", "lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
         ),
         types.Tool(
             name="fly_body_offset",
@@ -512,6 +595,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
         ),
         types.Tool(
             name="set_velocity",
@@ -554,6 +639,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
         ),
         types.Tool(
             name="hold",
@@ -587,6 +674,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         # ==============================================================================
         # VISION TOOLS - Object detection and tracking
@@ -608,6 +697,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=VISION_ANNOTATIONS,
         ),
         types.Tool(
             name="get_detected_objects",
@@ -620,12 +711,14 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=VISION_ANNOTATIONS,
         ),
         # ==============================================================================
-        # STATUS TOOL - Server health and diagnostics
+        # STATUS TOOLS - Server and drone status
         # ==============================================================================
         types.Tool(
-            name="get_status",
+            name="get_server_status",
             description=(
                 "Get comprehensive server status. "
                 "Returns connection state, flight state, guardian status, "
@@ -636,6 +729,69 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="get_drone_status",
+            description=(
+                "Get drone operational status. "
+                "Returns connection state, flight state, and battery level. "
+                "Lightweight alternative to get_server_status for quick checks."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        # ==============================================================================
+        # META TOOLS - Server health and operation control
+        # ==============================================================================
+        types.Tool(
+            name="ping",
+            description=(
+                "Check server liveness and health. "
+                "Returns pong with timestamp and uptime. "
+                "Use for connection keep-alive and health monitoring. "
+                "This tool works even without drone connection."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            # MCP annotations for tool behavior hints
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        types.Tool(
+            name="cancel_operation",
+            description=(
+                "Cancel a running long-running operation gracefully. "
+                "The operation will complete its current iteration and exit cleanly. "
+                "Use to abort extended operations like orbit_target or spiral_search. "
+                "Requires operation_id from the original operation call."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "operation_id": {
+                        "type": "string",
+                        "description": "Unique identifier of the operation to cancel",
+                    },
+                },
+                "required": ["operation_id"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         # ==============================================================================
         # ACROBATIC FLIGHT TOOLS - Advanced maneuvers
@@ -653,6 +809,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="back_flip",
@@ -667,6 +825,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="barrel_roll",
@@ -688,6 +848,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="yaw_spin",
@@ -716,6 +878,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="loop_maneuver",
@@ -731,6 +895,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="corkscrew",
@@ -753,6 +919,30 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="acrobatic_sequence",
+            description=(
+                "Execute a sequence of acrobatic maneuvers. "
+                "Chains multiple maneuvers with 1-second pauses for stabilization. "
+                "Supported: front_flip, back_flip, barrel_roll, yaw_spin, loop, corkscrew. "
+                "WARNING: Cumulative altitude loss - start high!"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "maneuvers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of maneuver names to execute in sequence",
+                    }
+                },
+                "required": ["maneuvers"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         # ==============================================================================
         # TRACKING AND CAMERA CONTROL TOOLS
@@ -792,6 +982,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="point_camera_at",
@@ -818,6 +1010,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["lat", "lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="orbit_target",
@@ -883,6 +1077,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["target_lat", "target_lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
         ),
         types.Tool(
             name="track_target",
@@ -953,6 +1149,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["target_lat", "target_lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
         ),
         types.Tool(
             name="spiral_search",
@@ -1000,6 +1198,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["center_lat", "center_lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
         ),
         # ==============================================================================
         # CINEMATIC SHOT TOOLS - Pre-programmed professional shots
@@ -1044,6 +1244,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["template_name", "target_lat", "target_lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="list_cinematic_templates",
@@ -1056,6 +1258,8 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 "properties": {},
                 "required": [],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
         ),
         types.Tool(
             name="preview_cinematic_shot",
@@ -1081,8 +1285,48 @@ def avatar_mcp_tool_definitions() -> List[Any]:
                 },
                 "required": ["template_name", "target_lat", "target_lon"],
             },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
         ),
     ]
+
+
+# ==============================================================================
+# LISTED TOOL NAMES - For compliance testing (D3.14)
+# ==============================================================================
+
+LISTED_TOOL_NAMES: List[str] = [
+    "arm_and_takeoff",
+    "get_telemetry",
+    "land",
+    "rtl",
+    "abort_mission",
+    "goto_gps",
+    "fly_body_offset",
+    "set_velocity",
+    "hold",
+    "detect_objects",
+    "get_detected_objects",
+    "get_server_status",
+    "get_drone_status",
+    "ping",
+    "cancel_operation",
+    "front_flip",
+    "back_flip",
+    "barrel_roll",
+    "yaw_spin",
+    "loop_maneuver",
+    "corkscrew",
+    "acrobatic_sequence",
+    "set_gimbal",
+    "point_camera_at",
+    "orbit_target",
+    "track_target",
+    "spiral_search",
+    "execute_cinematic_shot",
+    "list_cinematic_templates",
+    "preview_cinematic_shot",
+]
 
 
 # ==============================================================================
@@ -1105,6 +1349,8 @@ class AvatarMCPServerConfig:
         enable_auto_failsafe: Whether to auto-trigger failsafe on critical issues
         max_retries: Maximum connection retry attempts
         retry_delay_s: Delay between connection retries in seconds
+        auto_confirm: D2.6 - Auto-confirm all confirmation requests (no human-in-loop)
+        confirmation_ttl_s: D2.6 - Default TTL for confirmation requests
     """
 
     system_address: str = "udp://:14540"  # Default SITL address
@@ -1116,6 +1362,9 @@ class AvatarMCPServerConfig:
     max_retries: int = 3
     retry_delay_s: float = 1.0
     connect_on_start: bool = True
+    # D2.6: Confirmation configuration
+    auto_confirm: bool = False  # Default: require human confirmation
+    confirmation_ttl_s: float = 60.0  # Default TTL for confirmations
 
     @classmethod
     def from_env(cls) -> "AvatarMCPServerConfig":
@@ -1142,6 +1391,11 @@ class AvatarMCPServerConfig:
             max_retries=int(os.getenv("AVATAR_MAX_RETRIES", cls.max_retries)),
             retry_delay_s=float(os.getenv("AVATAR_RETRY_DELAY_S", cls.retry_delay_s)),
             connect_on_start=env_bool("AVATAR_CONNECT_ON_START", cls.connect_on_start),
+            # D2.6: Confirmation settings from environment
+            auto_confirm=env_bool("AVATAR_AUTO_CONFIRM", cls.auto_confirm),
+            confirmation_ttl_s=float(
+                os.getenv("AVATAR_CONFIRMATION_TTL_S", cls.confirmation_ttl_s)
+            ),
         )
 
 
@@ -1261,6 +1515,39 @@ class AvatarMCPServer:
             state_machine=self.state_machine,
         )
 
+        # D3.12: Singleton TelemetryTools and VisionTools
+        # These are shared across all tool invocations for consistent state
+        from avatar.mcp_server.tools.telemetry_tools import TelemetryTools, TelemetryToolsConfig
+        from avatar.mcp_server.tools.vision_tools import VisionTools, VisionToolsConfig
+
+        self.telemetry_tools = TelemetryTools(
+            config=TelemetryToolsConfig(
+                system_address=self.config.system_address,
+                max_retries=self.config.max_retries,
+                retry_delay_s=self.config.retry_delay_s,
+                health_timeout_s=self.config.connection_timeout_s,
+            )
+        )
+
+        self.vision_tools = VisionTools(
+            config=VisionToolsConfig()
+        )
+
+        # D2.6: ConfirmationManager for human-in-the-loop confirmation
+        # Controls confirmation flow for dangerous operations
+        self.confirmation_manager = ConfirmationManager(
+            config=ConfirmationConfig(
+                timeout_s=self.config.confirmation_ttl_s,
+                show_telemetry_details=True,
+                require_explicit_abort=False,
+            )
+        )
+        # Configure auto-confirm from environment
+        self.confirmation_manager.auto_confirm = self.config.auto_confirm
+        self.confirmation_manager.default_ttl_s = self.config.confirmation_ttl_s
+        if self.config.auto_confirm:
+            logger.info("ConfirmationManager: auto_confirm enabled (no human-in-loop)")
+
         # Set global references for tool function modules
         # This allows tool functions to access shared state
         set_state_machine(self.state_machine)
@@ -1268,6 +1555,14 @@ class AvatarMCPServer:
         set_telemetry_state_machine(self.state_machine)
         set_telemetry_telemetry_cache(self.telemetry_cache)
         set_telemetry_guardian(self.guardian)
+        # D2.6: Set confirmation manager reference for flight tools
+        from avatar.mcp_server.tools.flight_tools import set_confirmation_manager
+        set_confirmation_manager(self.confirmation_manager)
+        # D3.12: Set singleton TelemetryTools and VisionTools instances
+        from avatar.mcp_server.tools.telemetry_tools import set_telemetry_tools_instance
+        from avatar.mcp_server.tools.vision_tools import set_vision_tools_instance
+        set_telemetry_tools_instance(self.telemetry_tools)
+        set_vision_tools_instance(self.vision_tools)
 
         # ==============================================================================
         # RUNTIME STATE
@@ -1334,7 +1629,7 @@ class AvatarMCPServer:
         @self.server.call_tool()  # type: ignore[untyped-decorator]
         async def handle_call_tool(
             name: str, arguments: Dict[str, Any]
-        ) -> List[types.TextContent]:
+        ) -> List[Any]:
             """Handle tool execution requests from MCP clients.
 
             This is the entry point for all drone commands from Claude.
@@ -1346,7 +1641,8 @@ class AvatarMCPServer:
                 arguments: Tool arguments from the caller (validated against inputSchema).
 
             Returns:
-                List of TextContent with the JSON-encoded result.
+                List of content items (TextContent for most tools,
+                may include ImageContent for vision tools).
 
             Error Handling:
                 All exceptions are caught and returned as error JSON.
@@ -1377,7 +1673,20 @@ class AvatarMCPServer:
                 # This separation keeps the handler clean and enables testing.
 
                 result = await self._route_tool(name, arguments)
-                return [types.TextContent(type="text", text=result)]
+
+                # Handle different return types:
+                # - List: Vision tools return content lists directly (TextContent + ImageContent)
+                # - str: Other tools return JSON strings that need wrapping
+                # - dict: Some tools return dicts that need JSON serialization
+                if isinstance(result, list):
+                    # Vision tools return lists of content items directly
+                    return result
+                elif isinstance(result, dict):
+                    # Handle dict results (e.g., error envelopes)
+                    return [types.TextContent(type="text", text=json.dumps(result))]
+                else:
+                    # String results need wrapping in TextContent
+                    return [types.TextContent(type="text", text=result)]
 
             except Exception as e:
                 # Log full exception with traceback for debugging
@@ -1394,7 +1703,7 @@ class AvatarMCPServer:
                     )
                 ]
 
-    async def _route_tool(self, name: str, arguments: Dict[str, Any]) -> str:
+    async def _route_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
         """Route tool call to appropriate handler implementation.
 
         This method acts as a switchboard, mapping tool names to the
@@ -1405,13 +1714,16 @@ class AvatarMCPServer:
             arguments: Dictionary of arguments from JSON parsing.
 
         Returns:
-            JSON string result from the tool execution.
+            Tool result which can be:
+            - str: JSON string for most tools
+            - list: List of content items for vision tools
+            - dict: Dict for some tools (e.g., error envelopes)
 
         Design Notes:
             - Each tool extracts arguments with .get() providing defaults
             - This handles optional parameters gracefully
             - JSON Schema validation already occurred in MCP layer
-            - All tool functions are async and return JSON strings
+            - Vision tools return lists of content items (TextContent + ImageContent)
         """
         # ==============================================================================
         # FLIGHT CONTROL TOOL HANDLERS
@@ -1528,12 +1840,16 @@ class AvatarMCPServer:
             return await get_detected_objects()
 
         # ==============================================================================
-        # STATUS TOOL HANDLER
+        # STATUS TOOL HANDLERS
         # ==============================================================================
 
-        elif name == "get_status":
+        elif name == "get_server_status":
             # Return comprehensive server status
             return json.dumps(self.get_status())
+
+        elif name == "get_drone_status":
+            # Return lightweight drone status
+            return json.dumps(self.get_drone_status())
 
         # ==============================================================================
         # ACROBATIC TOOL HANDLERS
@@ -1559,6 +1875,11 @@ class AvatarMCPServer:
 
         elif name == "corkscrew":
             return await corkscrew(arguments.get("rotations", 1.0))
+
+        elif name == "acrobatic_sequence":
+            return await acrobatic_sequence(
+                maneuvers=arguments.get("maneuvers", [])
+            )
 
         # ==============================================================================
         # TRACKING AND CAMERA TOOL HANDLERS
@@ -1638,6 +1959,20 @@ class AvatarMCPServer:
                 template_name=arguments.get("template_name", ""),
                 target_lat=arguments.get("target_lat", 0.0),
                 target_lon=arguments.get("target_lon", 0.0),
+            )
+
+        # ==============================================================================
+        # META TOOL HANDLERS
+        # ==============================================================================
+
+        elif name == "ping":
+            # Health check - no drone dependency
+            return await async_ping()
+
+        elif name == "cancel_operation":
+            # Cancel a long-running operation
+            return await async_cancel_operation(
+                operation_id=arguments.get("operation_id", "")
             )
 
         else:
@@ -2042,6 +2377,42 @@ class AvatarMCPServer:
             }
 
         return status
+
+    def get_drone_status(self) -> Dict[str, Any]:
+        """Get lightweight drone operational status.
+
+        Returns connection state, flight state, and battery level.
+        Lightweight alternative to get_status() for quick checks.
+
+        Returns:
+            Dictionary containing:
+            - connection: Connection state (connected/disconnected)
+            - flight: Flight state, armed status, in_air status
+            - battery: Battery percentage and voltage
+
+        Example:
+            status = server.get_drone_status()
+            if status["connection"]["connected"]:
+                print(f"Battery: {status['battery']['percent']}%")
+        """
+        telemetry = self.telemetry_cache.get_data()
+
+        return {
+            "connection": {
+                "connected": self.connection_manager.state.name == "CONNECTED",
+                "state": self.connection_manager.state.name,
+            },
+            "flight": {
+                "state": self.state_machine.current_state_name,
+                "armed": telemetry.armed if telemetry else False,
+                "in_air": telemetry.in_air if telemetry else False,
+                "flight_mode": telemetry.flight_mode if telemetry else "UNKNOWN",
+            },
+            "battery": {
+                "percent": telemetry.battery_percent if telemetry else 0.0,
+                "voltage_v": telemetry.battery_voltage if telemetry else 0.0,
+            },
+        }
 
     # ==============================================================================
     # ASYNC CONTEXT MANAGER SUPPORT

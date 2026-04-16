@@ -268,8 +268,38 @@ from avatar.mcp_server.tools.flight_tools import (
 from avatar.mcp_server.tools.tracking_tools import (
     set_gimbal, point_camera_at, _calculate_look_angles, _clamp
 )
+from avatar.mcp_server.errors import to_error_envelope, ErrorCode
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# STANDARD TOOL ANNOTATIONS
+# =============================================================================
+# These are the 4 standard hints for MCP tool annotations as per D2.1 contract.
+
+ANNOTATIONS_READ_ONLY = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+
+ANNOTATIONS_WRITE_SAFE = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
+ANNOTATIONS_DESTRUCTIVE = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
+
+OUTPUT_SCHEMA = {"type": "object"}
 
 # =============================================================================
 # HARDWARE LIMITS
@@ -1831,6 +1861,10 @@ async def execute_cinematic_shot(
 ) -> str:
     """Execute a pre-programmed cinematic shot via MCP.
 
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: False, destructiveHint: False, idempotentHint: False, openWorldHint: True}
+        outputSchema: {type: object}
+
     This is the main entry point for AI agents to execute cinematic shots.
     It loads the specified template, applies any custom overrides, and executes
     the appropriate shot algorithm based on shot type.
@@ -2059,7 +2093,12 @@ def _template_to_dict(template_name: str, template: ShotTemplate) -> Dict[str, A
 
 
 async def list_cinematic_templates() -> str:
-    """List available cinematic shot templates for MCP clients."""
+    """List available cinematic shot templates for MCP clients.
+
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: True, destructiveHint: False, idempotentHint: True, openWorldHint: False}
+        outputSchema: {type: object}
+    """
     planner = CinematicShotPlanner()
     templates = [
         _template_to_dict(name, planner.templates[name])
@@ -2078,7 +2117,12 @@ async def preview_cinematic_shot(
     target_lat: float,
     target_lon: float,
 ) -> str:
-    """Preview a cinematic shot trajectory without commanding the drone."""
+    """Preview a cinematic shot trajectory without commanding the drone.
+
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: True, destructiveHint: False, idempotentHint: True, openWorldHint: True}
+        outputSchema: {type: object}
+    """
     planner = CinematicShotPlanner()
     template = planner.get_template(template_name)
     if template is None:

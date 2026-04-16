@@ -4,6 +4,23 @@ This module provides a fully async safety monitoring system with concurrent
 tasks for heartbeat emission, resource monitoring, state consistency checks,
 and VIO sanity monitoring. Maintains <50ms precision at 20Hz operational loop.
 
+WHY ASYNC FOR SAFETY MONITORING:
+-----------------------------
+Traditional synchronous safety monitoring struggles with multiple concurrent
+checks at different frequencies. Async enables:
+
+1. CONCURRENT MONITORING: Multiple safety checks run simultaneously without
+   blocking each other. A 1Hz resource check doesn't delay a 20Hz heartbeat.
+
+2. PRECISE TIMING: Each monitor maintains its own precise interval using
+   drift-corrected sleep loops. No cumulative timing errors.
+
+3. NON-BLOCKING TELEMETRY: MAVSDK telemetry subscriptions are async generators.
+   Sync code would need complex threading; async handles this naturally.
+
+4. CLEAN CANCELLATION: When stopping, all monitors can be cancelled cleanly
+   and awaited, ensuring no orphaned threads or processes.
+
 Key features:
 - 20Hz heartbeat emission with <50ms precision
 - 500ms offboard timeout detection
@@ -36,31 +53,52 @@ from avatar.mav.connection_manager import ConnectionManager
 from avatar.mav.heartbeat_service import HeartbeatService, HeartbeatSource
 from avatar.mav.state_machine import FlightState, FlightStateMachine
 
+# D2.7: Import EscalationMatrix dispatch types
+from avatar.mav.escalation_matrix import (
+    EscalationMatrix,
+    GuardianEvent,
+    FailsafeAction,
+    FailsafeExecutor,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class MonitorType(Enum):
-    """Types of monitoring tasks."""
+    """Types of monitoring tasks.
 
-    HEARTBEAT = "heartbeat"
-    STATE_CONSISTENCY = "state_consistency"
-    RESOURCE = "resource"
-    VIO_SANITY = "vio_sanity"
-    NETWORK = "network"
+    Each monitor type runs as a separate asyncio.Task, allowing independent
+    frequencies and priorities. This modular design lets us add new safety
+    checks without affecting existing monitors.
+    """
+
+    HEARTBEAT = "heartbeat"           # 20Hz - Critical for offboard control
+    STATE_CONSISTENCY = "state_consistency"  # 10Hz - Detect state machine drift
+    RESOURCE = "resource"             # 1Hz - Monitor CPU/memory/temperature
+    VIO_SANITY = "vio_sanity"         # 5Hz - Visual odometry quality checks
+    NETWORK = "network"               # 1Hz - Connection health monitoring
 
 
 class SafetyAction(Enum):
-    """Available safety actions."""
+    """Available safety actions.
 
-    RTL = "return_to_launch"
-    LAND = "land"
-    HOLD = "hold"
-    EMERGENCY_STOP = "emergency_stop"
+    These map to PX4 failsafe actions that the guardian can trigger
+    when safety thresholds are breached.
+    """
+
+    RTL = "return_to_launch"          # Return to launch point and land
+    LAND = "land"                     # Land immediately at current position
+    HOLD = "hold"                     # Stop and hold position (hover)
+    EMERGENCY_STOP = "emergency_stop" # Kill motors immediately (last resort)
 
 
 @dataclass
 class GuardianConfig:
     """Configuration for AsyncGuardian.
+
+    All intervals are in seconds. Lower intervals = higher frequency.
+    The 20Hz heartbeat (0.05s) is the most critical - PX4 requires this
+    to maintain offboard control mode.
 
     Attributes:
         heartbeat_interval_s: Interval between heartbeats (default: 0.05 = 20Hz)
@@ -80,12 +118,12 @@ class GuardianConfig:
         auto_failsafe: Whether to auto-trigger failsafe on critical issues (default: True)
     """
 
-    heartbeat_interval_s: float = 0.05  # 20Hz
-    offboard_timeout_s: float = 0.5
-    resource_check_interval_s: float = 1.0
-    state_check_interval_s: float = 0.1
-    vio_check_interval_s: float = 0.2
-    network_check_interval_s: float = 1.0
+    heartbeat_interval_s: float = 0.05  # 20Hz - Critical for PX4 offboard mode
+    offboard_timeout_s: float = 0.5    # 500ms - PX4 default offboard timeout
+    resource_check_interval_s: float = 1.0   # 1Hz - System resources
+    state_check_interval_s: float = 0.1    # 10Hz - State machine consistency
+    vio_check_interval_s: float = 0.2     # 5Hz - Visual odometry health
+    network_check_interval_s: float = 1.0   # 1Hz - Connection health
     max_cpu_percent: float = 80.0
     max_temp_celsius: float = 75.0
     max_memory_percent: float = 85.0
@@ -100,6 +138,10 @@ class GuardianConfig:
 @dataclass
 class ResourceMetrics:
     """Resource usage metrics.
+
+    Tracks system resources that could affect flight safety. High CPU usage
+    can cause delayed command processing; high temperature can cause
+    thermal throttling or hardware damage.
 
     Attributes:
         cpu_percent: CPU usage percentage
@@ -118,10 +160,13 @@ class ResourceMetrics:
 class VIOMetrics:
     """VIO (Visual-Inertial Odometry) metrics.
 
+    VIO provides position estimates from camera + IMU fusion. When VIO fails,
+    the drone loses its position reference and cannot maintain stable flight.
+
     Attributes:
-        position_variance: Position estimate variance
+        position_variance: Position estimate variance (lower = more confident)
         velocity_variance: Velocity estimate variance
-        tracking_quality: Tracking quality score (0-1)
+        tracking_quality: Tracking quality score (0-1, higher = better)
         is_valid: Whether VIO data is valid
         timestamp: Unix timestamp of measurement
     """
@@ -136,6 +181,10 @@ class VIOMetrics:
 @dataclass
 class Alert:
     """Safety alert record.
+
+    Alerts are stored in a ring buffer (max 100 entries) and can be retrieved
+    via get_status(). Critical alerts trigger automatic failsafe actions
+    when auto_failsafe is enabled.
 
     Attributes:
         level: Alert level (warning, critical)
@@ -155,6 +204,9 @@ class Alert:
 @dataclass
 class GuardianStatus:
     """Current status of the AsyncGuardian.
+
+    Provides a snapshot of all monitoring activity. Used by external systems
+    (like the MCP server) to display current safety status to users.
 
     Attributes:
         is_running: Whether guardian is running
@@ -182,6 +234,30 @@ class GuardianStatus:
 class AsyncGuardian:
     """Async Guardian process with concurrent safety monitoring.
 
+    THE ASYNC LOOP ARCHITECTURE:
+    ---------------------------
+    The AsyncGuardian manages multiple independent monitoring tasks, each
+    running at its own frequency. This is implemented using asyncio.Task
+    objects that run concurrently within a single event loop.
+
+    Task Layout:
+    - Heartbeat Emitter (20Hz): Highest priority, precise 50ms intervals
+    - State Consistency Monitor (10Hz): Detects state machine / telemetry drift
+    - Resource Monitor (1Hz): Tracks CPU, memory, temperature
+    - VIO Sanity Monitor (5Hz): Validates visual odometry quality
+    - Network Monitor (1Hz): Checks MAVLink connection health
+
+    Each task follows this pattern:
+    1. Check if stop_event is set (cooperative cancellation)
+    2. Perform monitoring action
+    3. Calculate next wake time with drift correction
+    4. await asyncio.sleep() to yield control
+
+    The async/await pattern is CRITICAL here because:
+    - It allows the 20Hz heartbeat to run precisely while other tasks run
+    - MAVSDK telemetry subscriptions are async generators
+    - Clean cancellation via stop_event and task.cancel()
+
     Monitors:
     - 20Hz heartbeat emission (50ms precision)
     - Offboard timeout (500ms)
@@ -207,23 +283,39 @@ class AsyncGuardian:
         heartbeat_service: HeartbeatService,
         state_machine: FlightStateMachine,
         config: Optional[GuardianConfig] = None,
+        escalation_matrix: Optional[EscalationMatrix] = None,
     ) -> None:
         """Initialize the AsyncGuardian.
+
+        Sets up all the internal state needed for concurrent monitoring.
+        Note: Monitoring tasks are NOT started here - call start() explicitly.
 
         Args:
             connection_manager: ConnectionManager instance for drone access
             heartbeat_service: HeartbeatService instance for heartbeat tracking
             state_machine: FlightStateMachine instance for state management
             config: Guardian configuration. Uses defaults if not provided.
+            escalation_matrix: D2.7 - Optional EscalationMatrix for dispatch.
+                If provided, failsafe actions are dispatched through the matrix.
         """
         self.cm = connection_manager
         self.hb = heartbeat_service
         self.sm = state_machine
         self.config = config or GuardianConfig()
 
+        # D2.7: EscalationMatrix for failsafe dispatch
+        # When set, failsafe actions are dispatched through the matrix
+        self._escalation_matrix = escalation_matrix
+
         # Task management
+        # _tasks stores active asyncio.Task objects keyed by MonitorType.
+        # This allows us to track, cancel, and await specific monitors.
         self._tasks: Dict[MonitorType, asyncio.Task[Any]] = {}
         self._running = False
+
+        # _stop_event is an asyncio.Event used for cooperative cancellation.
+        # All monitor loops check this event periodically and exit cleanly when set.
+        # This is more graceful than task.cancel() for routine shutdowns.
         self._stop_event = asyncio.Event()
 
         # Timing and metrics
@@ -232,16 +324,17 @@ class AsyncGuardian:
         self._missed_heartbeats = 0
         self._heartbeat_count = 0
 
-        # State tracking
+        # State tracking with async locks for thread-safety.
+        # Multiple monitors may read/write these concurrently.
         self._alerts: List[Alert] = []
         self._max_alerts = 100
         self._alerts_lock = asyncio.Lock()
 
-        # Resource tracking
+        # Resource tracking with locks
         self._resource_metrics = ResourceMetrics()
         self._resource_lock = asyncio.Lock()
 
-        # VIO tracking
+        # VIO tracking with locks
         self._vio_metrics = VIOMetrics()
         self._vio_lock = asyncio.Lock()
 
@@ -249,11 +342,11 @@ class AsyncGuardian:
         self._last_ping_time: float = 0.0
         self._network_healthy = True
 
-        # Telemetry state cache
+        # Telemetry state cache - used to detect state changes
         self._last_telemetry_state: Optional[FlightState] = None
         self._last_telemetry_time: float = 0.0
 
-        # Failsafe callbacks
+        # Failsafe callback - called when safety action is triggered
         self.on_failsafe: Optional[Callable[[SafetyAction, str], Coroutine[Any, Any, None]]] = None
 
     @property
@@ -266,6 +359,16 @@ class AsyncGuardian:
 
         This method is idempotent - calling it multiple times when already
         running will not create duplicate tasks.
+
+        THE STARTUP SEQUENCE:
+        1. Clear stop_event (allows monitors to run)
+        2. Record start time for uptime tracking
+        3. Register failsafe callback with HeartbeatService
+        4. Spawn all configured monitor tasks as asyncio.Task objects
+        5. Each task immediately starts its monitoring loop
+
+        The monitors run concurrently - they don't block each other because
+        each uses await asyncio.sleep() to yield control back to the event loop.
         """
         if self._running:
             logger.debug("AsyncGuardian already running")
@@ -275,11 +378,14 @@ class AsyncGuardian:
         self._start_time = time.time()
         self._running = True
 
-        # Register with heartbeat service
-        if self.hb.is_running:
-            self.hb.on_failsafe = self._on_heartbeat_failsafe
+        # Register heartbeat sources with the service
+        # These will be monitored for staleness
+        self.hb.add_source("guardian", timeout_s=self.config.heartbeat_interval_s * 10)
+        self.hb.add_source("offboard", timeout_s=self.config.offboard_timeout_s)
+        self.hb.add_source("llm", timeout_s=self.config.offboard_timeout_s)
 
         # Start monitor tasks
+        # Each creates an asyncio.Task that runs concurrently
         await self._start_monitors()
 
         logger.info("AsyncGuardian started with 20Hz safety monitoring")
@@ -288,27 +394,47 @@ class AsyncGuardian:
         """Stop the guardian and cleanup all tasks.
 
         This method is idempotent - calling it multiple times is safe.
+
+        THE SHUTDOWN SEQUENCE:
+        1. Set stop_event (signals monitors to exit cleanly)
+        2. Set _running = False (prevents new operations)
+        3. Cancel all monitor tasks and await their completion
+        4. Unregister from HeartbeatService
+        5. Log uptime statistics
+
+        Task cancellation uses a two-phase approach:
+        - First, stop_event is set for cooperative exit
+        - Then task.cancel() is called for tasks that don't respond
+        - Finally we await each task to ensure clean shutdown
         """
         if not self._running:
             logger.debug("AsyncGuardian already stopped")
             return
 
-        # Signal stop
+        # Signal stop - cooperative cancellation
         self._stop_event.set()
         self._running = False
 
-        # Cancel all tasks
+        # Cancel all tasks and await their completion
         await self._stop_monitors()
 
-        # Unregister from heartbeat service
-        if self.hb.is_running and self.hb.on_failsafe == self._on_heartbeat_failsafe:
-            self.hb.on_failsafe = None
+        # Signal heartbeat service to stop monitoring
+        self.hb.stop()
 
         uptime = time.time() - self._start_time
         logger.info(f"AsyncGuardian stopped (uptime: {uptime:.1f}s)")
 
     async def _start_monitors(self) -> None:
-        """Start all configured monitoring tasks."""
+        """Start all configured monitoring tasks.
+
+        Each enabled monitor is spawned as a separate asyncio.Task. This allows:
+        - Independent frequencies (20Hz heartbeat vs 1Hz resource check)
+        - Independent failure modes (one monitor crashing doesn't stop others)
+        - Easy extension (add new monitors without changing existing ones)
+
+        Tasks are stored in self._tasks dict keyed by MonitorType for later
+        cancellation and status reporting.
+        """
         tasks_to_start = []
 
         if self.config.enable_heartbeat_emit:
@@ -339,7 +465,15 @@ class AsyncGuardian:
         logger.debug(f"Started monitors: {tasks_to_start}")
 
     async def _stop_monitors(self) -> None:
-        """Stop all monitoring tasks."""
+        """Stop all monitoring tasks.
+
+        Uses asyncio.Task.cancel() for each monitor, then awaits them.
+        CancelledError is expected and suppressed - it's the normal
+        mechanism for stopping asyncio tasks.
+
+        This ensures all monitors have a chance to clean up (close connections,
+        flush buffers, etc.) before the guardian fully stops.
+        """
         # Cancel all tasks
         for monitor_type, task in list(self._tasks.items()):
             if not task.done():
@@ -347,13 +481,33 @@ class AsyncGuardian:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    pass
+                    pass  # Expected - this is how we stop tasks
                 logger.debug(f"Stopped {monitor_type.value} monitor")
 
         self._tasks.clear()
 
     async def _heartbeat_emitter(self) -> None:
         """Emit heartbeats at 20Hz (50ms intervals).
+
+        THE 20HZ HEARTBEAT LOOP:
+        ------------------------
+        This is the most critical monitoring task. PX4 requires heartbeats
+        at 2Hz minimum, but we run at 20Hz for:
+        - Sub-50ms latency on offboard timeout detection
+        - Redundancy (missed heartbeats don't immediately cause timeout)
+        - Smoother control when using offboard mode
+
+        DRIFT CORRECTION:
+        The loop uses "next_emit_time += interval" rather than recalculating
+        from current time. This prevents cumulative timing drift. If we fall
+        behind (due to event loop congestion), we log it but don't try to
+        "catch up" by emitting multiple rapid heartbeats.
+
+        The loop structure:
+        1. Record heartbeat timestamp
+        2. Update heartbeat service
+        3. Calculate next target time (with drift correction)
+        4. await asyncio.sleep() until next emission
 
         This task maintains precise 50ms intervals using asyncio.sleep()
         with drift correction.
@@ -371,8 +525,7 @@ class AsyncGuardian:
                 self._heartbeat_count += 1
 
                 # Record heartbeat with heartbeat service
-                if self.hb.is_running:
-                    self.hb.record_heartbeat(HeartbeatSource.GUARDIAN, emit_time)
+                self.hb.record_heartbeat("guardian")
 
                 # Calculate next emission time with drift correction
                 next_emit_time += interval
@@ -386,7 +539,7 @@ class AsyncGuardian:
                     self._missed_heartbeats += 1
                     logger.warning(f"Heartbeat deadline missed by {lag*1000:.1f}ms")
 
-                    # Don't accumulate too much lag
+                    # Don't accumulate too much lag - reset to prevent burst
                     if lag > interval:
                         next_emit_time = time.time() + interval
 
@@ -400,6 +553,28 @@ class AsyncGuardian:
 
     async def _state_consistency_monitor(self) -> None:
         """Monitor state consistency between telemetry and state machine.
+
+        CONCURRENT STATE CHECKS:
+        -----------------------
+        This monitor runs at 10Hz, independently of the 20Hz heartbeat and
+        other monitors. It performs two critical checks:
+
+        1. STATE MACHINE SYNC:
+           Compares the FlightStateMachine's believed state against actual
+           telemetry from PX4. If they diverge (e.g., state machine thinks
+           we're flying but telemetry shows disarmed), we emit a warning
+           and sync the state machine to match reality.
+
+        2. OFFBOARD TIMEOUT:
+           Checks if we've received heartbeats from the offboard controller
+           (LLM/agent) within the 500ms timeout window. If not, the drone
+           will automatically exit offboard mode - we detect this and can
+           trigger a failsafe (HOLD mode) to prevent uncontrolled drift.
+
+        The async pattern here allows us to:
+        - Use async for loops with MAVSDK telemetry (natively async)
+        - Check stop_event between iterations (clean cancellation)
+        - Not block other monitors while waiting for telemetry
 
         Checks at 10Hz that the state machine matches the actual telemetry.
         Triggers alerts on state mismatch.
@@ -415,13 +590,13 @@ class AsyncGuardian:
                 if self._stop_event.is_set():
                     break
 
-                # Get current telemetry state
+                # Get current telemetry state from PX4
                 telemetry_state = await self._get_telemetry_state()
 
                 if telemetry_state is not None:
                     sm_state = self.sm.current_state
 
-                    # Check for mismatch
+                    # Check for mismatch between state machine and reality
                     if telemetry_state != sm_state:
                         # Some states are equivalent (e.g., FLYING and POSITION_CONTROL)
                         if not self._states_equivalent(telemetry_state, sm_state):
@@ -433,22 +608,21 @@ class AsyncGuardian:
                             )
 
                             # Sync state machine from telemetry
+                            # The state machine should always reflect reality
                             self._sync_state_from_telemetry(telemetry_state)
 
-                # Check offboard timeout
-                if self.hb.is_running:
-                    last_hb = self.hb.get_last_heartbeat(HeartbeatSource.OFFBOARD)
-                    offboard_age = time.time() - last_hb if last_hb is not None else float('inf')
+                # Check offboard timeout - critical for safety
+                offboard_age = self.hb.get_last_beat_age("offboard")
+                if offboard_age is not None and offboard_age > self.config.offboard_timeout_s:
+                    await self._add_alert(
+                        "critical",
+                        MonitorType.STATE_CONSISTENCY.value,
+                        f"Offboard timeout: {offboard_age:.2f}s > {self.config.offboard_timeout_s}s",
+                    )
 
-                    if offboard_age > self.config.offboard_timeout_s:
-                        await self._add_alert(
-                            "critical",
-                            MonitorType.STATE_CONSISTENCY.value,
-                            f"Offboard timeout: {offboard_age:.2f}s > {self.config.offboard_timeout_s}s",
-                        )
-
-                        if self.config.auto_failsafe:
-                            await self.initiate_hold("offboard_timeout")
+                    # Trigger failsafe - hold position until control resumes
+                    if self.config.auto_failsafe:
+                        await self.initiate_hold("offboard_timeout")
 
             except asyncio.CancelledError:
                 break
@@ -459,6 +633,20 @@ class AsyncGuardian:
 
     async def _resource_monitor(self) -> None:
         """Monitor system resources (CPU, temperature, memory).
+
+        RESOURCE SAFETY AT 1HZ:
+        ----------------------
+        Unlike the 20Hz heartbeat, resource monitoring only needs to run
+        at 1Hz because resource conditions change slowly (seconds, not ms).
+
+        Uses psutil (when available) to check:
+        - CPU usage: High CPU can delay critical flight commands
+        - Memory usage: Memory pressure causes swap thrashing
+        - Temperature: Thermal throttling reduces performance
+
+        Each check is independent - high CPU alone won't trigger failsafe,
+        but critical temperature will. Alerts escalate from warning to
+        critical based on severity.
 
         Checks at 1Hz for resource issues that could affect safety.
         """
@@ -473,13 +661,13 @@ class AsyncGuardian:
                 if self._stop_event.is_set():
                     break
 
-                # Get resource metrics
+                # Get resource metrics via psutil
                 metrics = await self._get_resource_metrics()
 
                 async with self._resource_lock:
                     self._resource_metrics = metrics
 
-                # Check CPU
+                # Check CPU - warning only
                 if metrics.cpu_percent > self.config.max_cpu_percent:
                     await self._add_alert(
                         "warning",
@@ -487,7 +675,7 @@ class AsyncGuardian:
                         f"High CPU usage: {metrics.cpu_percent:.1f}%",
                     )
 
-                # Check memory
+                # Check memory - warning only
                 if metrics.memory_percent > self.config.max_memory_percent:
                     await self._add_alert(
                         "warning",
@@ -495,7 +683,7 @@ class AsyncGuardian:
                         f"High memory usage: {metrics.memory_percent:.1f}%",
                     )
 
-                # Check temperature
+                # Check temperature - critical (can cause hardware damage)
                 if metrics.temperature_celsius > self.config.max_temp_celsius:
                     await self._add_alert(
                         "critical",
@@ -513,6 +701,25 @@ class AsyncGuardian:
     async def _vio_sanity_monitor(self) -> None:
         """Monitor VIO (Visual-Inertial Odometry) sanity.
 
+        VIO SAFETY AT 5HZ:
+        -----------------
+        VIO provides position estimates from camera + IMU fusion. When VIO
+        fails or degrades, the drone loses position awareness and cannot
+        maintain stable flight.
+
+        This monitor checks odometry data from PX4 at 5Hz:
+        - is_valid: Whether the VIO system reports valid data
+        - position_variance: Estimate uncertainty (higher = less confident)
+        - tracking_quality: Feature tracking score (0-1)
+
+        VIO failure modes:
+        - Poor lighting (can't track features)
+        - Fast motion (motion blur)
+        - Textureless environments (no features to track)
+        - IMU drift (accumulated error)
+
+        Critical failures trigger immediate HOLD to prevent drift.
+
         Checks at 5Hz for VIO quality degradation.
         """
         logger.debug("VIO sanity monitor started (5Hz)")
@@ -526,13 +733,13 @@ class AsyncGuardian:
                 if self._stop_event.is_set():
                     break
 
-                # Get VIO metrics
+                # Get VIO metrics from telemetry
                 metrics = await self._get_vio_metrics()
 
                 async with self._vio_lock:
                     self._vio_metrics = metrics
 
-                # Check VIO validity
+                # Check VIO validity - critical for position control
                 if not metrics.is_valid:
                     await self._add_alert(
                         "critical",
@@ -540,10 +747,11 @@ class AsyncGuardian:
                         "VIO data invalid - position estimate unreliable",
                     )
 
+                    # Hold position immediately - can't navigate without VIO
                     if self.config.auto_failsafe and self.sm.is_flying:
                         await self.initiate_hold("vio_invalid")
 
-                # Check position variance
+                # Check position variance - warning if degraded
                 elif metrics.position_variance > 1.0:  # 1 meter variance threshold
                     await self._add_alert(
                         "warning",
@@ -551,7 +759,7 @@ class AsyncGuardian:
                         f"High position variance: {metrics.position_variance:.2f}m",
                     )
 
-                # Check tracking quality
+                # Check tracking quality - warning if poor
                 elif metrics.tracking_quality < 0.5:
                     await self._add_alert(
                         "warning",
@@ -569,6 +777,23 @@ class AsyncGuardian:
     async def _network_monitor(self) -> None:
         """Monitor network connectivity to drone.
 
+        NETWORK SAFETY AT 1HZ:
+        ---------------------
+        MAVLink connection health is critical. This monitor checks:
+        - Connection health status from ConnectionManager
+        - Stale telemetry (no data for >2 seconds)
+
+        Connection loss scenarios:
+        - WiFi interference/degradation
+        - USB cable disconnection
+        - Companion computer crash
+        - PX4 reboot
+
+        RTL (Return to Launch) is triggered on connection loss because:
+        - We can't send commands without connection
+        - Drone should return to safe location autonomously
+        - Better than losing the drone or having it drift/fly away
+
         Checks at 1Hz for network issues.
         """
         logger.debug("Network monitor started (1Hz)")
@@ -582,7 +807,7 @@ class AsyncGuardian:
                 if self._stop_event.is_set():
                     break
 
-                # Check connection health
+                # Check connection health from ConnectionManager
                 if not self.cm.health.is_healthy:
                     await self._add_alert(
                         "critical",
@@ -590,10 +815,11 @@ class AsyncGuardian:
                         "Connection to drone unhealthy",
                     )
 
+                    # RTL if flying - return home on connection loss
                     if self.config.auto_failsafe and self.sm.is_flying:
                         await self.initiate_rtl("connection_unhealthy")
 
-                # Check for stale telemetry
+                # Check for stale telemetry (no MAVLink traffic)
                 last_heartbeat_age = time.time() - self.cm.health.last_heartbeat
                 if last_heartbeat_age > 2.0:  # No telemetry for 2 seconds
                     await self._add_alert(
@@ -602,6 +828,7 @@ class AsyncGuardian:
                         f"Stale telemetry: {last_heartbeat_age:.1f}s since last heartbeat",
                     )
 
+                    # RTL on stale telemetry - same as connection loss
                     if self.config.auto_failsafe and self.sm.is_flying:
                         await self.initiate_rtl("telemetry_stale")
 
@@ -615,6 +842,13 @@ class AsyncGuardian:
     async def initiate_rtl(self, reason: str) -> bool:
         """Initiate Return-To-Launch failsafe.
 
+        RTL is the safest default action when control is uncertain. The drone
+        climbs to RTL altitude, flies directly to the launch point, and lands
+        automatically.
+
+        D2.7: If escalation_matrix is set, dispatches through the matrix's
+        failsafe executor system. Otherwise, executes directly.
+
         Args:
             reason: Human-readable reason for RTL
 
@@ -623,10 +857,33 @@ class AsyncGuardian:
         """
         logger.warning(f"Initiating RTL: {reason}")
 
+        # D2.7: Dispatch through EscalationMatrix if configured
+        if self._escalation_matrix is not None:
+            event = GuardianEvent(
+                condition="geofence_breach",  # Maps to RTL action
+                reason=reason,
+                context={"source": "async_guardian"}
+            )
+            try:
+                await self._escalation_matrix.dispatch_guardian_event(event)
+                logger.info("RTL dispatched through EscalationMatrix")
+            except Exception as e:
+                logger.error(f"EscalationMatrix dispatch failed: {e}")
+                # Fall through to direct execution
+
         # Transition state machine
         success = self.sm.trigger_failsafe("rc_loss")  # Reuse rc_loss for RTL
 
         if success:
+            # Execute RTL action on drone
+            try:
+                drone = await self.cm.get_drone()
+                if drone is not None:
+                    await drone.action.return_to_launch()
+                    logger.info("RTL action sent to drone")
+            except Exception as e:
+                logger.error(f"Failed to send RTL action: {e}")
+
             await self._add_alert(
                 "critical",
                 "failsafe",
@@ -634,7 +891,7 @@ class AsyncGuardian:
                 action_taken=SafetyAction.RTL.value,
             )
 
-            # Call failsafe callback if set
+            # Call failsafe callback if set (for external notification)
             if self.on_failsafe:
                 try:
                     await self.on_failsafe(SafetyAction.RTL, reason)
@@ -646,6 +903,12 @@ class AsyncGuardian:
     async def initiate_land(self, reason: str) -> bool:
         """Initiate emergency land failsafe.
 
+        Land immediately at current position. Used when RTL is not safe
+        (e.g., low battery, obstacle near launch point).
+
+        D2.7: If escalation_matrix is set, dispatches through the matrix's
+        failsafe executor system. Otherwise, executes directly.
+
         Args:
             reason: Human-readable reason for landing
 
@@ -654,10 +917,33 @@ class AsyncGuardian:
         """
         logger.warning(f"Initiating Land: {reason}")
 
+        # D2.7: Dispatch through EscalationMatrix if configured
+        if self._escalation_matrix is not None:
+            event = GuardianEvent(
+                condition="total_power_loss",  # Maps to Land action
+                reason=reason,
+                context={"source": "async_guardian"}
+            )
+            try:
+                await self._escalation_matrix.dispatch_guardian_event(event)
+                logger.info("Land dispatched through EscalationMatrix")
+            except Exception as e:
+                logger.error(f"EscalationMatrix dispatch failed: {e}")
+                # Fall through to direct execution
+
         # Transition state machine
         success = self.sm.trigger_failsafe("critical_battery")  # Reuse for land
 
         if success:
+            # Execute Land action on drone
+            try:
+                drone = await self.cm.get_drone()
+                if drone is not None:
+                    await drone.action.land()
+                    logger.info("Land action sent to drone")
+            except Exception as e:
+                logger.error(f"Failed to send Land action: {e}")
+
             await self._add_alert(
                 "critical",
                 "failsafe",
@@ -676,6 +962,12 @@ class AsyncGuardian:
     async def initiate_hold(self, reason: str) -> bool:
         """Initiate position hold failsafe.
 
+        Hold maintains current position (hover). Used for temporary issues
+        that may resolve (e.g., offboard timeout, VIO degradation).
+
+        D2.7: If escalation_matrix is set, dispatches through the matrix's
+        failsafe executor system. Otherwise, executes directly.
+
         Args:
             reason: Human-readable reason for hold
 
@@ -684,10 +976,33 @@ class AsyncGuardian:
         """
         logger.warning(f"Initiating Hold: {reason}")
 
+        # D2.7: Dispatch through EscalationMatrix if configured
+        if self._escalation_matrix is not None:
+            event = GuardianEvent(
+                condition="state_inconsistency",  # Maps to Hold action
+                reason=reason,
+                context={"source": "async_guardian"}
+            )
+            try:
+                await self._escalation_matrix.dispatch_guardian_event(event)
+                logger.info("Hold dispatched through EscalationMatrix")
+            except Exception as e:
+                logger.error(f"EscalationMatrix dispatch failed: {e}")
+                # Fall through to direct execution
+
         # Transition state machine
         success = self.sm.trigger_failsafe("offboard_timeout")
 
         if success:
+            # Execute Hold action on drone
+            try:
+                drone = await self.cm.get_drone()
+                if drone is not None:
+                    await drone.action.hold()
+                    logger.info("Hold action sent to drone")
+            except Exception as e:
+                logger.error(f"Failed to send Hold action: {e}")
+
             await self._add_alert(
                 "warning",
                 "failsafe",
@@ -706,6 +1021,14 @@ class AsyncGuardian:
     async def initiate_emergency_stop(self, reason: str) -> bool:
         """Initiate emergency stop (kill switch).
 
+        EMERGENCY STOP kills motors immediately. This is a last resort when:
+        - Drone is flying toward people/obstacles
+        - Complete loss of control
+        - Hardware failure making flight unsafe
+
+        WARNING: Will cause drone to fall from sky. Only use when the
+        alternative (uncontrolled flight) is worse.
+
         Args:
             reason: Human-readable reason for emergency stop
 
@@ -718,6 +1041,21 @@ class AsyncGuardian:
         success = self.sm.trigger_failsafe("kill_switch")
 
         if success:
+            # Execute Kill/Terminate action on drone
+            try:
+                drone = await self.cm.get_drone()
+                if drone is not None:
+                    # Try kill first (immediate motor cutoff)
+                    try:
+                        await drone.action.kill()
+                        logger.critical("Kill action sent to drone")
+                    except Exception:
+                        # Fallback to terminate if kill not supported
+                        await drone.action.terminate()
+                        logger.critical("Terminate action sent to drone")
+            except Exception as e:
+                logger.error(f"Failed to send emergency stop action: {e}")
+
             await self._add_alert(
                 "critical",
                 "failsafe",
@@ -735,6 +1073,12 @@ class AsyncGuardian:
 
     def get_status(self) -> GuardianStatus:
         """Get current guardian status.
+
+        Returns a snapshot of all monitoring activity including:
+        - Which monitors are active
+        - Heartbeat statistics
+        - Recent alerts
+        - Resource and VIO metrics
 
         Returns:
             GuardianStatus with current metrics and alerts
@@ -762,18 +1106,6 @@ class AsyncGuardian:
         """Clear all alerts."""
         self._alerts.clear()
 
-    async def _on_heartbeat_failsafe(self, source: HeartbeatSource) -> None:
-        """Handle heartbeat failsafe callback.
-
-        Args:
-            source: The heartbeat source that timed out
-        """
-        logger.critical(f"Heartbeat failsafe triggered for {source.value}")
-
-        if self.config.auto_failsafe:
-            if self.sm.is_flying:
-                await self.initiate_hold(f"heartbeat_timeout_{source.value}")
-
     async def _add_alert(
         self,
         level: str,
@@ -782,6 +1114,12 @@ class AsyncGuardian:
         action_taken: Optional[str] = None,
     ) -> None:
         """Add an alert to the alert log.
+
+        Alerts are stored in a ring buffer (max 100 entries) to prevent
+        unbounded memory growth. Critical alerts are logged at CRITICAL
+        level; warnings at WARNING level.
+
+        Thread-safe: Uses asyncio.Lock to prevent concurrent modification.
 
         Args:
             level: Alert level (warning, critical)
@@ -799,11 +1137,11 @@ class AsyncGuardian:
         async with self._alerts_lock:
             self._alerts.append(alert)
 
-            # Trim to max size
+            # Trim to max size (ring buffer behavior)
             if len(self._alerts) > self._max_alerts:
                 self._alerts = self._alerts[-self._max_alerts:]
 
-        # Log immediately
+        # Log immediately at appropriate level
         if level == "critical":
             logger.critical(f"[{source}] {message}")
         else:
@@ -811,6 +1149,15 @@ class AsyncGuardian:
 
     async def _get_telemetry_state(self) -> Optional[FlightState]:
         """Get current flight state from telemetry.
+
+        Queries PX4 telemetry streams to determine actual flight state:
+        - armed: Whether motors are armed
+        - in_air: Whether drone has taken off
+        - velocity: For detecting hover vs flying
+
+        Uses asyncio generators (async for) to get single samples from
+        MAVSDK telemetry streams. This is non-blocking and integrates
+        cleanly with the async monitor architecture.
 
         Returns:
             FlightState from telemetry or None if unavailable
@@ -820,7 +1167,7 @@ class AsyncGuardian:
             if drone is None:
                 return None
 
-            # Get armed state
+            # Get armed state - use async for with break for single sample
             armed = False
             async for armed_state in drone.telemetry.armed():
                 armed = armed_state
@@ -844,7 +1191,7 @@ class AsyncGuardian:
                 velocity = [vel.north_m_s, vel.east_m_s, vel.down_m_s]
                 break
 
-            # Determine state
+            # Determine state from telemetry data
             if not armed:
                 return FlightState.DISARMED
             elif armed and not in_air and landed:
@@ -866,7 +1213,8 @@ class AsyncGuardian:
         """Check if two states are functionally equivalent.
 
         Some states like FLYING and POSITION_CONTROL are similar enough
-        that mismatches shouldn't trigger alerts.
+        that mismatches shouldn't trigger alerts. This prevents false
+        positives during normal flight mode transitions.
 
         Args:
             state1: First state
@@ -878,7 +1226,7 @@ class AsyncGuardian:
         if state1 == state2:
             return True
 
-        # Equivalent flying states
+        # Equivalent flying states - all represent active flight
         flying_group = {
             FlightState.FLYING,
             FlightState.POSITION_CONTROL,
@@ -893,6 +1241,10 @@ class AsyncGuardian:
 
     def _sync_state_from_telemetry(self, telemetry_state: FlightState) -> None:
         """Sync state machine from telemetry state.
+
+        When the state machine drifts from reality (e.g., due to missed
+        transitions), this forces synchronization. The state machine
+        should always reflect the actual drone state.
 
         Args:
             telemetry_state: State determined from telemetry
@@ -909,6 +1261,9 @@ class AsyncGuardian:
     async def _get_resource_metrics(self) -> ResourceMetrics:
         """Get current resource metrics.
 
+        Uses psutil (when available) to check system resources. The import
+        is done inside the method to make psutil an optional dependency.
+
         Returns:
             ResourceMetrics with current values
         """
@@ -918,12 +1273,12 @@ class AsyncGuardian:
             cpu_percent = float(psutil.cpu_percent(interval=0.1))
             memory = psutil.virtual_memory()
 
-            # Try to get temperature
+            # Try to get temperature (not available on all platforms)
             temp = 0.0
             try:
                 temps = psutil.sensors_temperatures()
                 if temps:
-                    # Use first available temperature
+                    # Use first available temperature sensor
                     for name, entries in temps.items():
                         if entries:
                             temp = float(entries[0].current)
@@ -938,11 +1293,18 @@ class AsyncGuardian:
             )
 
         except ImportError:
-            # psutil not available - return zeros
+            # psutil not available - return zeros (graceful degradation)
             return ResourceMetrics()
 
     async def _get_vio_metrics(self) -> VIOMetrics:
         """Get current VIO metrics.
+
+        Queries odometry data from PX4 telemetry. Odometry contains
+        position/velocity estimates with covariance matrices that indicate
+        estimate quality.
+
+        The covariance values indicate uncertainty - higher variance means
+        less confidence in the position estimate.
 
         Returns:
             VIOMetrics with current values
@@ -977,11 +1339,18 @@ class AsyncGuardian:
             logger.debug(f"Could not get VIO metrics: {e}")
             return VIOMetrics(is_valid=False)
 
-        # Fallback if async for loop doesn't execute
+        # Fallback if async for loop doesn't execute (shouldn't happen)
         return VIOMetrics(is_valid=False)
 
     async def __aenter__(self) -> "AsyncGuardian":
-        """Async context manager entry."""
+        """Async context manager entry.
+
+        Allows using the guardian with 'async with' syntax:
+            async with AsyncGuardian(...) as guardian:
+                # guardian is running here
+                pass
+            # guardian is stopped here
+        """
         await self.start()
         return self
 
@@ -991,5 +1360,10 @@ class AsyncGuardian:
         exc_val: Optional[BaseException],
         exc_tb: Any,
     ) -> None:
-        """Async context manager exit - ensures stop."""
+        """Async context manager exit - ensures stop.
+
+        This guarantees the guardian stops even if an exception is raised
+        in the context body. This is critical for safety - we never want
+        to leave the guardian running after the controlling context exits.
+        """
         await self.stop()

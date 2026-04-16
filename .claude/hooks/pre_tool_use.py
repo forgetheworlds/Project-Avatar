@@ -2,12 +2,70 @@
 """
 Pre-Tool-Use Hook: Drone Safety Validation
 
-Validates drone commands before execution. Checks:
-- Altitude limits (max 120m per FAA Part 107)
-- Geofence boundaries (configurable polygon)
-- Battery level (minimum 20% for flight operations)
+WHAT ARE CLAUDE CODE HOOKS?
+==========================
+Hooks in Claude Code are executable scripts that intercept tool calls at specific points
+in the execution lifecycle. They allow you to:
+- Validate commands before execution (safety gates)
+- Modify tool inputs dynamically
+- Log or audit operations
+- Enforce policies or constraints
 
-Returns: JSON with (allow: bool, reason: str)
+WHEN THIS HOOK FIRES
+====================
+The pre_tool_use hook executes BEFORE any tool is called by Claude Code. It receives
+the tool name and input via stdin as JSON, validates it, and returns a JSON response
+that determines whether the tool execution should proceed.
+
+Hook Input Format (via stdin):
+{
+    "tool_name": "mcp__drone__arm_and_takeoff",
+    "tool_input": {"command": "arm and takeoff to 50m"},
+    "command": "arm and takeoff to 50m"
+}
+
+Hook Output Format (to stdout):
+{
+    "allow": true/false,
+    "reason": "Safety check passed/failed because..."
+}
+
+WHAT THIS HOOK CHECKS
+======================
+This hook implements a comprehensive safety validation system for drone operations:
+
+1. ALTITUDE LIMITS (FAA Part 107 Compliance)
+   - Maximum altitude: 120 meters (400 feet)
+   - Validates target altitude in navigation commands
+   - Monitors current altitude during flight
+
+2. GEOFENCE BOUNDARIES
+   - Configurable circular geofence around takeoff point
+   - Default radius: 500 meters
+   - Validates target positions before navigation
+   - Monitors current position during flight
+
+3. BATTERY LEVEL
+   - Minimum 20% required for flight operations
+   - Bypassed for emergency operations (safety override)
+   - Bypassed for landing/disarm (safety critical)
+
+4. COMMAND CATEGORIZATION
+   - Automatically categorizes commands (navigation, takeoff, land, arm, etc.)
+   - Applies appropriate safety rules per category
+   - Extracts parameters (altitude, position) from natural language
+
+HOW THIS IMPROVES WORKFLOW
+============================
+- Prevents accidental dangerous commands (e.g., "fly to 500m")
+- Enforces regulatory compliance automatically
+- Provides immediate feedback on why commands are rejected
+- Maintains persistent safety state across multiple commands
+- Logs all validation attempts for audit trails
+
+Configuration Files:
+- /tmp/drone_safety_config.json: Safety thresholds and geofence settings
+- /tmp/drone_state.json: Current drone telemetry (updated by post_tool_use hook)
 """
 
 import json
@@ -21,7 +79,16 @@ import math
 
 
 class CommandCategory(Enum):
-    """Categories of drone commands."""
+    """
+    Categories of drone commands for applying appropriate safety rules.
+
+    Each category has specific safety requirements:
+    - NAVIGATION: Requires altitude and geofence checks
+    - ARM: Requires battery check
+    - TAKEOFF: Requires battery check and altitude validation
+    - LAND: Bypasses most checks (safety critical)
+    - EMERGENCY: Bypasses all checks (safety override)
+    """
     NAVIGATION = "navigation"
     ARM = "arm"
     DISARM = "disarm"
@@ -36,7 +103,21 @@ class CommandCategory(Enum):
 
 @dataclass
 class SafetyConfig:
-    """Safety configuration parameters."""
+    """
+    Safety configuration parameters loaded from environment or config file.
+
+    These values define the safety boundaries enforced by the validator.
+    They can be overridden via /tmp/drone_safety_config.json or environment
+    variables for different operational scenarios.
+
+    Attributes:
+        max_altitude_m: FAA Part 107 maximum altitude (default 120m)
+        min_battery_percent: Minimum battery for flight operations (default 20%)
+        geofence_center_lat: Latitude of geofence center point
+        geofence_center_lon: Longitude of geofence center point
+        geofence_radius_m: Maximum allowed distance from center (default 500m)
+        enable_*: Toggle switches for each safety check category
+    """
     max_altitude_m: float = 120.0  # FAA Part 107 limit
     min_battery_percent: float = 20.0
     geofence_center_lat: float = 0.0
@@ -49,7 +130,22 @@ class SafetyConfig:
 
 @dataclass
 class DroneState:
-    """Current drone state."""
+    """
+    Current drone state loaded from persistent storage.
+
+    This state is maintained by the post_tool_use hook and provides the
+    validator with real-time telemetry for making safety decisions.
+
+    Attributes:
+        altitude_m: Current altitude in meters
+        latitude: Current GPS latitude
+        longitude: Current GPS longitude
+        battery_percent: Remaining battery percentage
+        armed: Whether motors are armed
+        in_flight: Whether drone is currently flying
+        home_lat: Home position latitude (for geofence center)
+        home_lon: Home position longitude (for geofence center)
+    """
     altitude_m: float = 0.0
     latitude: float = 0.0
     longitude: float = 0.0
@@ -61,9 +157,21 @@ class DroneState:
 
 
 class SafetyValidator:
-    """Validates drone commands for safety compliance."""
+    """
+    Validates drone commands for safety compliance before execution.
 
-    # Command patterns for categorization
+    This is the core validation engine that parses commands, extracts parameters,
+    and applies safety rules based on the current drone state and configuration.
+
+    Usage:
+        validator = SafetyValidator()
+        allowed, reason = validator.validate("fly to altitude 100m")
+        if not allowed:
+            print(f"Command rejected: {reason}")
+    """
+
+    # Command patterns for categorization using regex
+    # These patterns match natural language commands and map them to categories
     COMMAND_PATTERNS = {
         CommandCategory.NAVIGATION: [
             r'\b(goto|fly_to|move_to|set_position|set_target)\b',
@@ -111,14 +219,26 @@ class SafetyValidator:
     }
 
     def __init__(self, config: Optional[SafetyConfig] = None):
-        """Initialize validator with configuration."""
+        """
+        Initialize the validator with configuration and load current state.
+
+        Args:
+            config: Optional SafetyConfig instance. If not provided, loads from
+                   environment variables and default configuration file.
+        """
         self.config = config or SafetyConfig()
         self.state = DroneState()
         self._load_config_from_file()
         self._load_state_from_file()
 
     def _load_config_from_file(self) -> None:
-        """Load safety configuration from file if available."""
+        """
+        Load safety configuration from persistent storage.
+
+        Reads from /tmp/drone_safety_config.json or path specified by
+        SAFETY_CONFIG_PATH environment variable. Allows runtime adjustment
+        of safety parameters without code changes.
+        """
         config_path = os.environ.get('SAFETY_CONFIG_PATH', '/tmp/drone_safety_config.json')
         if os.path.exists(config_path):
             try:
@@ -128,10 +248,16 @@ class SafetyValidator:
                         if hasattr(self.config, key):
                             setattr(self.config, key, value)
             except (json.JSONDecodeError, IOError):
-                pass  # Use defaults
+                pass  # Use defaults if file is corrupted
 
     def _load_state_from_file(self) -> None:
-        """Load drone state from file if available."""
+        """
+        Load current drone state from persistent storage.
+
+        Reads from /tmp/drone_state.json or path specified by
+        DRONE_STATE_PATH environment variable. This state is maintained
+        by the post_tool_use hook to provide real-time telemetry.
+        """
         state_path = os.environ.get('DRONE_STATE_PATH', '/tmp/drone_state.json')
         if os.path.exists(state_path):
             try:
@@ -141,10 +267,24 @@ class SafetyValidator:
                         if hasattr(self.state, key):
                             setattr(self.state, key, value)
             except (json.JSONDecodeError, IOError):
-                pass  # Use defaults
+                pass  # Use defaults if file is corrupted
 
     def categorize_command(self, command: str) -> CommandCategory:
-        """Determine the category of a drone command."""
+        """
+        Determine the category of a drone command using regex patterns.
+
+        This categorization drives which safety checks are applied:
+        - NAVIGATION commands: altitude + geofence checks
+        - TAKEOFF commands: battery + altitude checks
+        - EMERGENCY commands: bypass all checks
+        - etc.
+
+        Args:
+            command: The command string to categorize
+
+        Returns:
+            CommandCategory enum value
+        """
         command_lower = command.lower()
 
         for category, patterns in self.COMMAND_PATTERNS.items():
@@ -154,7 +294,21 @@ class SafetyValidator:
         return CommandCategory.UNKNOWN
 
     def extract_altitude(self, command: str) -> Optional[float]:
-        """Extract target altitude from command if present."""
+        """
+        Extract target altitude from natural language command.
+
+        Supports various formats:
+        - "altitude 50m"
+        - "climb to 100 meters"
+        - "fly at 75m"
+        - "height: 80m"
+
+        Args:
+            command: The command string to parse
+
+        Returns:
+            Target altitude in meters, or None if not found
+        """
         # Match patterns like "altitude 50m", "climb to 100", "at 75 meters"
         patterns = [
             r'altitude[:\s]+(\d+(?:\.\d+)?)\s*m',
@@ -171,7 +325,20 @@ class SafetyValidator:
         return None
 
     def extract_position(self, command: str) -> Optional[Tuple[float, float]]:
-        """Extract target lat/lon from command if present."""
+        """
+        Extract target latitude/longitude from command.
+
+        Supports formats:
+        - "lat: 37.7749, lon: -122.4194"
+        - "37.7749, -122.4194"
+        - "position: 37.7749 -122.4194"
+
+        Args:
+            command: The command string to parse
+
+        Returns:
+            Tuple of (latitude, longitude), or None if not found
+        """
         # Match lat,lon patterns
         patterns = [
             r'(?:lat|latitude)[:\s]+(-?\d+(?:\.\d+?)).*?(?:lon|longitude)[:\s]+(-?\d+(?:\.\d+))',
@@ -186,7 +353,21 @@ class SafetyValidator:
         return None
 
     def haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Calculate distance between two points in meters."""
+        """
+        Calculate great-circle distance between two GPS coordinates.
+
+        Uses the haversine formula for accurate Earth-surface distance
+        calculation. Essential for geofence validation.
+
+        Args:
+            lat1: Starting latitude in degrees
+            lon1: Starting longitude in degrees
+            lat2: Target latitude in degrees
+            lon2: Target longitude in degrees
+
+        Returns:
+            Distance in meters
+        """
         R = 6371000  # Earth radius in meters
 
         phi1 = math.radians(lat1)
@@ -200,7 +381,24 @@ class SafetyValidator:
         return R * c
 
     def check_altitude(self, target_altitude: Optional[float], command: str) -> Tuple[bool, str]:
-        """Check if altitude is within limits."""
+        """
+        Validate altitude against FAA Part 107 limits.
+
+        Checks:
+        1. Target altitude does not exceed max_altitude_m (default 120m)
+        2. Current altitude is within limits if already in flight
+        3. Negative altitudes are rejected
+
+        Safety bypass: LAND and DISARM commands skip altitude checks
+        to ensure safe ground operations can always proceed.
+
+        Args:
+            target_altitude: Altitude from command parsing, or None
+            command: Original command string for categorization
+
+        Returns:
+            Tuple of (passed: bool, reason: str)
+        """
         if not self.config.enable_altitude_check:
             return True, "Altitude check disabled"
 
@@ -222,7 +420,23 @@ class SafetyValidator:
         return True, "Altitude within limits"
 
     def check_geofence(self, target_position: Optional[Tuple[float, float]], command: str) -> Tuple[bool, str]:
-        """Check if position is within geofence."""
+        """
+        Validate position against geofence boundaries.
+
+        Checks:
+        1. Target position is within radius of geofence center
+        2. Current position is within geofence if already in flight
+
+        Safety bypass: LAND commands skip geofence checks to ensure
+        the drone can always return home for landing.
+
+        Args:
+            target_position: (lat, lon) tuple from command parsing, or None
+            command: Original command string for categorization
+
+        Returns:
+            Tuple of (passed: bool, reason: str)
+        """
         if not self.config.enable_geofence:
             return True, "Geofence check disabled"
 
@@ -255,7 +469,23 @@ class SafetyValidator:
         return True, "Position within geofence"
 
     def check_battery(self, command: str) -> Tuple[bool, str]:
-        """Check if battery level is sufficient for operation."""
+        """
+        Validate battery level for flight operations.
+
+        Policy:
+        - Minimum 20% required for: TAKEOFF, NAVIGATION, MISSION, ARM
+        - No minimum required for: LAND, DISARM, TELEMETRY, SETTINGS
+        - Emergency operations bypass all checks
+
+        This prevents takeoff with insufficient battery and warns when
+        battery drops below threshold during flight.
+
+        Args:
+            command: Original command string for categorization
+
+        Returns:
+            Tuple of (passed: bool, reason: str)
+        """
         if not self.config.enable_battery_check:
             return True, "Battery check disabled"
 
@@ -282,10 +512,20 @@ class SafetyValidator:
 
     def validate(self, command: str) -> Tuple[bool, str]:
         """
-        Validate a drone command for safety.
+        Main validation entry point - runs all safety checks.
+
+        This method orchestrates the complete safety validation pipeline:
+        1. Parse command for parameters (altitude, position)
+        2. Run all safety checks (altitude, geofence, battery)
+        3. Collect and report any failures
+
+        Args:
+            command: The command string to validate
 
         Returns:
             Tuple of (allowed: bool, reason: str)
+            - allowed: True if all checks pass, False if any fail
+            - reason: Human-readable explanation of result
         """
         # Extract parameters from command
         target_altitude = self.extract_altitude(command)
@@ -311,20 +551,32 @@ class SafetyValidator:
 
 
 def main():
-    """Main entry point for the hook."""
-    # Read the tool input from stdin
+    """
+    Main entry point for the Claude Code pre_tool_use hook.
+
+    This function handles the stdin/stdout protocol with Claude Code:
+    1. Read JSON input from stdin containing tool call details
+    2. Check if this is a drone-related command
+    3. Run safety validation if it is
+    4. Output JSON result to stdout
+    5. Exit with code 0 (allow) or 1 (block)
+
+    The exit code determines whether Claude Code proceeds with the tool call.
+    """
+    # Read the tool input from stdin (Claude Code sends JSON here)
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
+        # If no valid JSON, allow by default (non-drone tools)
         print(json.dumps({"allow": True, "reason": "No valid JSON input, allowing by default"}))
         sys.exit(0)
 
-    # Extract the tool name and arguments
+    # Extract the tool name and arguments from Claude's input
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     command = input_data.get("command", "")
 
-    # Build the command string from various inputs
+    # Build the command string from various inputs (different tools use different keys)
     if isinstance(tool_input, dict):
         command = tool_input.get("command", command)
         command = tool_input.get("prompt", command)
@@ -335,7 +587,7 @@ def main():
         print(json.dumps({"allow": True, "reason": "No command to validate"}))
         sys.exit(0)
 
-    # Only validate drone-related commands
+    # Only validate drone-related commands to avoid blocking unrelated tools
     drone_keywords = ['drone', 'uav', 'copter', 'quad', 'fly', 'arm', 'takeoff', 'land', 'mission', 'altitude', 'geofence']
     is_drone_command = any(kw in str(tool_input).lower() for kw in drone_keywords)
 
@@ -343,10 +595,11 @@ def main():
         print(json.dumps({"allow": True, "reason": "Not a drone command"}))
         sys.exit(0)
 
-    # Run validation
+    # Run validation through SafetyValidator
     validator = SafetyValidator()
     allowed, reason = validator.validate(command)
 
+    # Build result JSON for Claude Code
     result = {
         "allow": allowed,
         "reason": reason,

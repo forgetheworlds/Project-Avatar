@@ -1,17 +1,45 @@
 """End-to-End Full Mission Tests.
 
-Tests the complete mission lifecycle:
-- Connect and initialize
-- Arm and takeoff
-- Velocity control mission
-- Position hold
-- Return and land
+================================================================================
+TEST SUITE OVERVIEW
+================================================================================
+This test suite validates the complete mission lifecycle from connection through
+landing. These tests exercise all major flight phases in sequence, ensuring the
+entire control pipeline works together correctly.
 
-All tests use SITL (Software In The Loop) simulation.
-No real hardware required.
+WHY THESE ARE E2E TESTS (NOT UNIT TESTS):
+-----------------------------------------
+- These tests verify INTEGRATION between all system components:
+  * MAVSDK connection and telemetry streaming
+  * PX4 autopilot command processing
+  * Avatar state machine state tracking
+  * Guardian safety validation
+  * Performance metrics collection
+- Unit tests isolate individual components; these tests find integration issues
+  like timing mismatches, state desynchronization, or protocol edge cases
+- Real SITL timing reveals issues that mocked unit tests cannot catch:
+  * Command acceptance delays
+  * Telemetry propagation latency
+  * State transition race conditions
+  * Altitude stabilization timing
 
-Usage:
+SCENARIOS COVERED:
+------------------
+1. Connect and Initialize    - MAVSDK connection and telemetry validation
+2. GPS Lock and Health       - Pre-flight health checks
+3. Arm and Takeoff           - Basic flight initiation
+4. Velocity Control Mission  - Offboard mode velocity setpoints
+5. Position Hold             - Hover stability verification
+6. Return and Land           - RTL and direct land commands
+7. Full Mission Lifecycle    - Complete 8-phase mission
+
+USAGE:
     pytest tests/e2e/test_full_mission.py -v --run-sitl
+
+Requirements:
+    - PX4 SITL running: make px4_sitl gz_x500
+    - Gazebo simulation visible (optional but recommended)
+    - 5-10 minutes per full test run
 """
 
 import asyncio
@@ -38,6 +66,10 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # CONNECT AND INITIALIZE TESTS
 # =============================================================================
+# These tests validate the foundation of all flight operations: establishing
+# a reliable connection to the autopilot and confirming telemetry streams
+# are active and healthy.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -51,11 +83,44 @@ async def test_connect_and_initialize(
     """
     Test MAVSDK connection to SITL and basic initialization.
 
-    Verifies:
-        - Connection to SITL succeeds
-        - Connection state reports as connected
-        - Telemetry is available
-        - Connection latency is <100ms
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Validates the initial connection handshake between the test harness and the
+    PX4 SITL simulation. This is the foundation of all subsequent tests - if
+    connection fails, no flight operations are possible.
+
+    Tests three critical aspects:
+    1. Connection establishment - MAVSDK finds and connects to PX4
+    2. Connection state query - Can read connection status
+    3. Telemetry availability - Position and battery streams are active
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Start timing for connection latency measurement
+    2. Query connection state via drone.core.connection_state()
+    3. Verify is_connected flag is True
+    4. Log UUID for tracking
+    5. Calculate connection establishment time
+    6. Query position telemetry stream
+    7. Verify position data is received (latitude, longitude, altitude)
+    8. Query battery telemetry stream
+    9. Verify battery data is received (percentage, voltage)
+    10. Record all latencies to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Connection state reports is_connected=True
+    - Connection establishment completes in <5000ms
+    - Position telemetry provides valid coordinates
+    - Battery telemetry provides percentage and voltage
+    - All telemetry queries complete successfully
+
+    Failure Modes:
+    - If connection fails: PX4 SITL is not running or wrong UDP port
+    - If telemetry missing: MAVSDK version mismatch or PX4 not sending
     """
     logger.info("TEST: Connect and Initialize")
 
@@ -117,10 +182,45 @@ async def test_gps_lock_and_health(
     """
     Test GPS lock acquisition and health checks.
 
-    Verifies:
-        - GPS position is valid
-        - Home position is set
-        - Health telemetry indicates ready state
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Before any flight can occur, the drone must have a valid GPS position and
+    pass all health checks. This test validates the pre-flight health status
+    that PX4 reports via the health telemetry stream.
+
+    Critical health checks:
+    - Global position: GPS has valid 3D fix
+    - Home position: GPS origin set for RTL reference
+    - Gyrometer calibration: IMU gyros calibrated
+    - Accelerometer calibration: IMU accelerometers calibrated
+
+    Without these, PX4 will reject arm commands.
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Query health telemetry stream
+    2. Check is_global_position_ok flag
+    3. Check is_home_position_ok flag
+    4. Check is_gyrometer_calibration_ok flag
+    5. Check is_accelerometer_calibration_ok flag
+    6. All checks must be True for health_ok
+    7. Log health status for diagnostics
+    8. Query and log home position coordinates
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - is_global_position_ok is True (GPS 3D fix acquired)
+    - is_home_position_ok is True (home position set)
+    - is_gyrometer_calibration_ok is True
+    - is_accelerometer_calibration_ok is True
+    - Overall health_ok is True
+
+    In SITL:
+        GPS is simulated as perfect, so all health checks should pass immediately.
+        In real hardware, this test would wait for actual GPS satellite lock.
     """
     logger.info("TEST: GPS Lock and Health")
 
@@ -154,6 +254,10 @@ async def test_gps_lock_and_health(
 # =============================================================================
 # ARM AND TAKEOFF TESTS
 # =============================================================================
+# These tests validate the first actual flight operations: arming the motors
+# and taking off to a target altitude. These are prerequisites for all other
+# flight maneuvers.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -167,11 +271,58 @@ async def test_arm_and_takeoff(
     """
     Test drone arming and takeoff sequence.
 
-    Verifies:
-        - Drone arms successfully
-        - Takeoff command is accepted
-        - Drone reaches target altitude
-        - Drone reports in-air status
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the basic flight initiation sequence that every mission requires:
+    arming the motors and taking off to a target altitude. This validates the
+    core flight control path through MAVSDK to PX4.
+
+    Arm sequence in PX4:
+    1. Pre-arm checks (health, GPS, battery)
+    2. Motor controller activation
+    3. Propeller spin-up (if not already spinning)
+
+    Takeoff sequence in PX4:
+    1. Vertical ascent at takeoff speed
+    2. Altitude hold at target altitude
+    3. In-air status becomes True
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Read initial armed state for reference
+    2. Set takeoff altitude to 5.0m
+    3. Verify takeoff altitude was set correctly
+    4. Measure arm command latency
+    5. Send arm command via MAVSDK
+    6. Wait for armed confirmation (up to 10 seconds)
+    7. Record arm latency
+    8. Measure takeoff command latency
+    9. Send takeoff command
+    10. Wait for in-air status (up to 30 seconds)
+    11. Allow 5 seconds for altitude stabilization
+    12. Query actual altitude via telemetry
+    13. Verify altitude is within 20% of target
+    14. Initiate landing for cleanup
+    15. Wait for on-ground confirmation
+    16. Attempt disarm
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Initial armed state is False (disarmed)
+    - Takeoff altitude is set to within 0.5m of target
+    - Arm command completes in <5000ms
+    - Drone reports armed status
+    - Takeoff command completes in reasonable time
+    - Drone reports in-air status
+    - Current altitude is 4.0m-6.0m (20% tolerance of 5m)
+    - Landing completes within 45 seconds
+
+    Performance Thresholds:
+    - Arm latency <5000ms
+    - Takeoff to in-air <30 seconds
     """
     logger.info("TEST: Arm and Takeoff")
 
@@ -248,6 +399,9 @@ async def test_arm_and_takeoff(
 # =============================================================================
 # VELOCITY CONTROL TESTS
 # =============================================================================
+# These tests validate offboard velocity control mode, which is used for
+# real-time piloted flight and automated trajectory tracking.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -261,11 +415,59 @@ async def test_velocity_control_mission(
     """
     Test velocity control via offboard mode.
 
-    Verifies:
-        - Offboard mode can be started
-        - Velocity setpoints are accepted
-        - 20Hz setpoint stream is maintained
-        - Offboard mode stops cleanly
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the offboard velocity control mode required for real-time control.
+    In offboard mode, the companion computer (running Avatar) sends velocity
+    setpoints at 20Hz, and PX4 follows them.
+
+    This mode is used for:
+    - Natural language flight commands ("fly forward at 2 m/s")
+    - Trajectory following
+    - Precision maneuvers
+
+    The test sends velocity commands at 20Hz for 3 seconds and verifies:
+    - Offboard mode can be started
+    - Velocity setpoints are accepted
+    - 20Hz rate is maintained
+    - Offboard mode stops cleanly
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to 5m to establish flight
+    2. Wait for stabilization
+    3. Import MAVSDK offboard VelocityNedYaw class
+    4. Create velocity setpoint: 1.0 m/s north
+    5. Send initial setpoint (required before start)
+    6. Measure offboard start latency
+    7. Start offboard mode
+    8. Maintain 20Hz setpoint stream for 3 seconds:
+       - Send velocity setpoint
+       - Increment counter
+       - Precise timing: sleep for remaining 50ms interval
+    9. Calculate achieved rate
+    10. Stop offboard mode
+    11. Verify achieved rate >= 18Hz
+    12. Land for cleanup
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Offboard mode starts successfully
+    - Setpoint stream maintains >= 18Hz actual rate
+    - All setpoints accepted without errors
+    - Offboard mode stops cleanly
+    - Drone remains stable throughout
+
+    Performance Thresholds:
+    - Offboard start latency: reasonable (<5s)
+    - Setpoint rate: >= 18Hz (target 20Hz, 10% tolerance)
+
+    Safety Note:
+        Small velocity (1 m/s) used to prevent excessive drift in limited
+        simulation space.
     """
     logger.info("TEST: Velocity Control Mission")
 
@@ -353,6 +555,9 @@ async def test_velocity_control_mission(
 # =============================================================================
 # POSITION HOLD TESTS
 # =============================================================================
+# These tests validate the drone's ability to maintain position, which is
+# essential for stable flight and mission execution.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -366,10 +571,51 @@ async def test_position_hold(
     """
     Test position hold (hover) functionality.
 
-    Verifies:
-        - Drone can hold position
-        - Position drift is within tolerance
-        - Hold command transitions state machine correctly
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the drone's position holding capability, also known as "hover" or
+    "loiter". This is the default mode when no other commands are active - the
+    drone should maintain its current position within tolerance.
+
+    Position hold relies on:
+    - GPS position feedback
+    - Velocity estimation from IMU
+    - Control loop maintaining position error near zero
+
+    This test sends a hold command and monitors position drift over 5 seconds.
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to 5m
+    2. Stabilize at altitude (5 seconds)
+    3. Record initial GPS position as reference
+    4. Send hold command
+    5. Measure hold command latency
+    6. Monitor position for 5 seconds:
+       - Query current position
+       - Calculate drift from initial using haversine approximation
+       - Track maximum drift observed
+       - Sample every 0.5 seconds
+    7. Log max drift and sample count
+    8. Verify max drift is within tolerance
+    9. Land for cleanup
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Hold command completes in <100ms
+    - Position drift remains <5m over 5 seconds
+    - Drone remains stable throughout hold
+
+    Tolerance Notes:
+    - SITL has simulated wind and physics that cause some drift
+    - 5m tolerance is reasonable for simulation (real drones achieve <1m)
+    - Main goal is verifying hold command works, not perfect position holding
+
+    Performance Thresholds:
+    - Hold command latency <100ms
     """
     logger.info("TEST: Position Hold")
 
@@ -442,6 +688,9 @@ async def test_position_hold(
 # =============================================================================
 # RETURN AND LAND TESTS
 # =============================================================================
+# These tests validate mission termination - returning to launch and landing.
+# These are critical safety operations that must work reliably.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -455,11 +704,48 @@ async def test_return_to_land(
     """
     Test Return to Launch (RTL) and landing.
 
-    Verifies:
-        - RTL command is accepted
-        - Drone returns toward launch position
-        - Landing completes successfully
-        - Drone ends on ground and disarmed
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the Return to Launch mission item, which is the standard way to end
+    missions safely. RTL causes the drone to:
+
+    1. Ascend to RTL altitude (if below)
+    2. Fly to home position (launch point)
+    3. Descend and land at home
+
+    This is a primary failsafe action and must work reliably every time.
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to 5m
+    2. Stabilize for 5 seconds
+    3. Record current position (will be near home in SITL)
+    4. Measure RTL command latency
+    5. Send return_to_launch command
+    6. Log command acceptance time
+    7. Wait for landing completion (up to 60 seconds)
+    8. Verify on-ground status via telemetry
+    9. Allow 3 seconds for auto-disarm
+    10. Attempt explicit disarm if still armed
+    11. Log final armed/disarmed status
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - RTL command completes in <100ms
+    - Drone lands within 60 seconds
+    - On-ground status reports True after landing
+    - Drone disarms (or can be manually disarmed)
+
+    Performance Thresholds:
+    - RTL command latency <100ms
+    - RTL completion <60 seconds (for short distances in SITL)
+
+    Note on SITL:
+        RTL behavior in SITL may vary based on PX4 parameter configuration.
+        The test allows up to 60 seconds for completion.
     """
     logger.info("TEST: Return to Launch and Land")
 
@@ -537,10 +823,41 @@ async def test_land_command(
     """
     Test direct land command.
 
-    Verifies:
-        - Land command is accepted
-        - Drone descends and touches down
-        - Landing completes within timeout
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the direct land command, which causes the drone to descend and land
+    at its current position. Unlike RTL, this does NOT return to home first -
+    it simply lands wherever the drone currently is.
+
+    Use cases:
+    - Mission termination at current location
+    - Pilot-initiated landing at a safe spot
+    - Emergency landing when RTL is not appropriate
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to 5m
+    2. Stabilize for 5 seconds
+    3. Measure land command latency
+    4. Send land command
+    5. Wait for landing completion (up to 45 seconds)
+    6. Verify landing completed
+    7. Query final altitude
+    8. Verify altitude is near zero (<1m)
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Land command completes in <100ms
+    - Drone lands within 45 seconds
+    - Final altitude is <1m from ground
+    - Drone is safely on ground
+
+    Performance Thresholds:
+    - Land command latency <100ms
+    - Landing completion <45 seconds (from 5m altitude)
     """
     logger.info("TEST: Land Command")
 
@@ -583,6 +900,9 @@ async def test_land_command(
 # =============================================================================
 # FULL MISSION LIFECYCLE TEST
 # =============================================================================
+# This test combines all phases into a single comprehensive mission, validating
+# the complete system integration and state transitions.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -598,21 +918,98 @@ async def test_full_mission_lifecycle(
     """
     Complete end-to-end mission test.
 
-    Sequence:
-        1. Connect and initialize
-        2. Arm
-        3. Takeoff to 5m
-        4. Velocity control (offboard) for 3 seconds
-        5. Position hold for 5 seconds
-        6. Return to launch
-        7. Land
-        8. Disarm
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Executes a complete 8-phase mission that exercises every major system
+    component and flight phase. This is the most comprehensive test in the
+    suite and validates that all components work together correctly.
 
-    Verifies:
-        - All 20 tasks work together
-        - Server wiring connects all components
-        - Real-time performance meets specs
-        - State transitions are correct
+    Mission Phases:
+    1. Connect and Initialize  - Connection, telemetry, home position
+    2. Arm                     - Motor activation
+    3. Takeoff                 - Ascent to 5m
+    4. Velocity Control        - Offboard mode at 20Hz for 3s
+    5. Position Hold           - Hover for 5s
+    6. Return to Launch        - RTL initiation
+    7. Land                    - Landing completion
+    8. Disarm                  - Motor deactivation
+
+    This test is marked as 'slow' because it takes 2-3 minutes to complete.
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    Phase 1: Initialize
+    - Home position set from telemetry
+    - Guardian system armed with home reference
+
+    Phase 2: Arm
+    - Send arm command
+    - Wait for armed confirmation
+    - Log arm time
+
+    Phase 3: Takeoff
+    - Set takeoff altitude to 5m
+    - Send takeoff command
+    - Wait for in-air status
+    - Stabilize for 5 seconds
+    - Verify altitude within 20% of target
+    - Log takeoff time
+
+    Phase 4: Velocity Control
+    - Enter offboard mode
+    - Stream velocity setpoints (1 m/s north) at 20Hz
+    - Maintain for 3 seconds
+    - Verify setpoint rate >= 18Hz
+    - Exit offboard mode
+    - Log control metrics
+
+    Phase 5: Position Hold
+    - Send hold command
+    - Maintain for 5 seconds
+    - Log hold time
+
+    Phase 6: Return to Launch
+    - Send RTL command
+    - Log RTL initiation time
+
+    Phase 7: Land
+    - Wait for landing completion (RTL includes descent)
+    - Log landing time
+
+    Phase 8: Disarm
+    - Wait briefly for auto-disarm
+    - Send explicit disarm if needed
+    - Log disarm time
+
+    Summary:
+    - Calculate total mission time
+    - Log all phase timings
+    - Record to performance collector
+    - Verify total time < 3 minutes
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - All 8 phases complete without errors
+    - Home position is set and valid
+    - Arm completes within 10 seconds
+    - Takeoff reaches target altitude (4-6m)
+    - Velocity control achieves >= 18Hz setpoint rate
+    - Position hold maintains for 5 seconds
+    - RTL and landing complete within 60 seconds
+    - Total mission time < 180 seconds (3 minutes)
+
+    State Machine Verification:
+    - State transitions track correctly through phases
+    - No invalid state transitions occur
+    - Final state is DISARMED
+
+    Performance Metrics Collected:
+    - Phase timings for all 8 phases
+    - Total mission duration
+    - Velocity control setpoint rate
     """
     logger.info("=" * 60)
     logger.info("TEST: Full Mission Lifecycle")

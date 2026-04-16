@@ -181,6 +181,7 @@ from avatar.mav.telemetry_cache import TelemetryCache, TelemetryData
 from avatar.mav.state_machine import FlightStateMachine
 from avatar.mav.connection_manager import ConnectionManager
 from avatar.mav.guardian_async import AsyncGuardian
+from avatar.mcp_server.errors import ErrorCode, to_error_envelope
 
 if TYPE_CHECKING:
     from avatar.mcp_server.compat import DroneConnection
@@ -278,10 +279,12 @@ class TelemetryTools:
         self._drone = DroneConnection(connection_config)
 
         if not await self._drone.connect():
-            return {
-                "success": False,
-                "error": "Failed to connect to drone. Ensure SITL or hardware is running.",
-            }
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Failed to connect to drone. Ensure SITL or hardware is running.",
+                recoverable=True,
+                suggested_action="Start PX4 SITL or connect hardware",
+            )
 
         self._connected = True
         return {}
@@ -341,7 +344,12 @@ class TelemetryTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Ensure connection is established before requesting telemetry",
+            )
 
         drone = self._drone.drone
         telemetry_data: dict[str, Any] = {"success": True}
@@ -491,7 +499,12 @@ class TelemetryTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Ensure connection is established before requesting telemetry",
+            )
 
         drone = self._drone.drone
         battery_data: dict[str, Any] = {"success": True}
@@ -529,8 +542,12 @@ class TelemetryTools:
                 break
 
         except Exception as e:
-            battery_data["success"] = False
-            battery_data["error"] = f"Battery data unavailable: {e}"
+            return to_error_envelope(
+                ErrorCode.INTERNAL_ERROR,
+                f"Battery data unavailable: {e}",
+                recoverable=True,
+                suggested_action="Retry telemetry request",
+            )
 
         return battery_data
 
@@ -581,7 +598,12 @@ class TelemetryTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Ensure connection is established before requesting telemetry",
+            )
 
         drone = self._drone.drone
         health_data: dict[str, Any] = {"success": True}
@@ -628,8 +650,12 @@ class TelemetryTools:
                 break
 
         except Exception as e:
-            health_data["success"] = False
-            health_data["error"] = f"Health check failed: {e}"
+            return to_error_envelope(
+                ErrorCode.INTERNAL_ERROR,
+                f"Health check failed: {e}",
+                recoverable=True,
+                suggested_action="Retry health check request",
+            )
 
         return health_data
 
@@ -676,7 +702,12 @@ class TelemetryTools:
             return conn_error
 
         if self._drone is None or self._drone.drone is None:
-            return {"success": False, "error": "Drone not connected"}
+            return to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "Drone not connected",
+                recoverable=True,
+                suggested_action="Ensure connection is established before requesting telemetry",
+            )
 
         drone = self._drone.drone
         position_data: dict[str, Any] = {"success": True}
@@ -727,8 +758,12 @@ class TelemetryTools:
                 break
 
         except Exception as e:
-            position_data["success"] = False
-            position_data["error"] = f"Position data unavailable: {e}"
+            return to_error_envelope(
+                ErrorCode.INTERNAL_ERROR,
+                f"Position data unavailable: {e}",
+                recoverable=True,
+                suggested_action="Retry position request",
+            )
 
         return position_data
 
@@ -1115,14 +1150,45 @@ async def get_status() -> Dict[str, Any]:
 # They wrap the TelemetryTools methods to provide the JSON string interface
 # expected by the MCP protocol.
 
+# D3.12: Singleton instance for use by MCP tools
+_telemetry_tools_instance: Optional[TelemetryTools] = None
+
+
+def set_telemetry_tools_instance(instance: TelemetryTools) -> None:
+    """Set the singleton TelemetryTools instance.
+
+    D3.12: Called by the server to set the singleton instance.
+    Tool functions will use this instance instead of creating new ones.
+
+    Args:
+        instance: The TelemetryTools instance to use as singleton.
+    """
+    global _telemetry_tools_instance
+    _telemetry_tools_instance = instance
+
+
+def get_telemetry_tools_instance() -> TelemetryTools:
+    """Get the singleton TelemetryTools instance.
+
+    Returns the singleton instance set by the server, or creates a new
+    instance if none has been set (for backwards compatibility).
+
+    Returns:
+        TelemetryTools instance (singleton or new).
+    """
+    global _telemetry_tools_instance
+    if _telemetry_tools_instance is None:
+        _telemetry_tools_instance = TelemetryTools()
+    return _telemetry_tools_instance
+
+
 async def get_telemetry() -> str:
     """MCP tool: Get comprehensive drone telemetry.
 
     Retrieves position, velocity, attitude, battery, flight mode,
     health status, and armed/in-air states.
 
-    This is a convenience wrapper that creates a TelemetryTools instance,
-    calls get_telemetry(), and returns JSON string for MCP transport.
+    D3.12: Uses singleton TelemetryTools instance from server.
 
     Returns:
         JSON string with telemetry data.
@@ -1134,7 +1200,7 @@ async def get_telemetry() -> str:
             ...
         }'
     """
-    tools = TelemetryTools()
+    tools = get_telemetry_tools_instance()
     result = await tools.get_telemetry()
     return json.dumps(result, indent=2)
 
@@ -1144,6 +1210,8 @@ async def get_battery_status() -> str:
 
     Returns battery percentage, voltage, current draw, and safety analysis
     including whether RTL (Return-to-Land) is required.
+
+    D3.12: Uses singleton TelemetryTools instance from server.
 
     Returns:
         JSON string with battery status.
@@ -1155,7 +1223,7 @@ async def get_battery_status() -> str:
             "safety": {"is_low": false, "rtl_required": false, ...}
         }'
     """
-    tools = TelemetryTools()
+    tools = get_telemetry_tools_instance()
     result = await tools.get_battery_status()
     return json.dumps(result, indent=2)
 

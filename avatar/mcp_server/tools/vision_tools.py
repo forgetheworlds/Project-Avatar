@@ -49,7 +49,7 @@ import io
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional, List, Dict, Union
+from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
 
 import numpy as np
 from PIL import Image
@@ -57,6 +57,10 @@ from PIL import Image
 from avatar.vision.gazebo_camera_client import GazeboCameraClient
 from avatar.vision.mock_detector import MockDetector, Detection
 from avatar.vision.providers import VisionBackendConfig
+from avatar.mcp_server.errors import ErrorCode, to_error_envelope
+
+if TYPE_CHECKING:
+    pass  # For ImageContent type hint when MCP is available
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +305,12 @@ class VisionTools:
 
         except Exception as e:
             logger.exception("Failed to capture frame")
-            return {"success": False, "error": f"Frame capture failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.PROVIDER_UNAVAILABLE,
+                f"Frame capture failed: {e}",
+                recoverable=True,
+                suggested_action="Check camera connection and retry capture",
+            )
 
     async def get_detected_objects(
         self,
@@ -428,7 +437,12 @@ class VisionTools:
 
         except Exception as e:
             logger.exception("Detection failed")
-            return {"success": False, "error": f"Detection failed: {e}"}
+            return to_error_envelope(
+                ErrorCode.INTERNAL_ERROR,
+                f"Detection failed: {e}",
+                recoverable=True,
+                suggested_action="Retry detection request",
+            )
 
     async def capture_and_detect(
         self,
@@ -508,13 +522,74 @@ class VisionTools:
 # MCP Tool Function Wrappers
 # =============================================================================
 # These are the actual functions registered with the MCP server.
-# They create temporary VisionTools instances to handle each request.
+# D3.12: They use a singleton VisionTools instance from the server.
+
+# D3.12: Singleton instance for use by MCP tools
+_vision_tools_instance: Optional[VisionTools] = None
+
+
+def set_vision_tools_instance(instance: VisionTools) -> None:
+    """Set the singleton VisionTools instance.
+
+    D3.12: Called by the server to set the singleton instance.
+    Tool functions will use this instance instead of creating new ones.
+
+    Args:
+        instance: The VisionTools instance to use as singleton.
+    """
+    global _vision_tools_instance
+    _vision_tools_instance = instance
+
+
+def get_vision_tools_instance() -> VisionTools:
+    """Get the singleton VisionTools instance.
+
+    Returns the singleton instance set by the server, or creates a new
+    instance if none has been set (for backwards compatibility).
+
+    Returns:
+        VisionTools instance (singleton or new).
+    """
+    global _vision_tools_instance
+    if _vision_tools_instance is None:
+        _vision_tools_instance = VisionTools()
+    return _vision_tools_instance
+
+
+# MCP types with fallback for testing environments
+try:
+    import mcp.types as mcp_types
+    _MCP_AVAILABLE = True
+except ImportError:
+    _MCP_AVAILABLE = False
+
+    class mcp_types:  # type: ignore
+        """Mock MCP types for testing without mcp module."""
+
+        class TextContent:
+            def __init__(self, type: str = "text", text: str = "") -> None:
+                self.type = type
+                self.text = text
+
+        class ImageContent:
+            def __init__(
+                self,
+                type: str = "image",
+                data: str = "",
+                mimeType: str = "image/png"
+            ) -> None:
+                self.type = type
+                self.data = data
+                self.mimeType = mimeType
+
 
 async def capture_frame() -> str:
     """MCP tool: Capture camera frame as base64 image.
 
     Captures a single frame from the drone camera and returns
     it as a base64-encoded image.
+
+    D3.12: Uses singleton VisionTools instance from server.
 
     YOLO/Vision Context:
         This provides raw image data for LLM vision analysis.
@@ -524,19 +599,26 @@ async def capture_frame() -> str:
     Returns:
         JSON string with base64 image data.
     """
-    tools = VisionTools()
+    tools = get_vision_tools_instance()
     result = await tools.capture_frame()
     return json.dumps(result)
+
+
+def _is_error_envelope(result: dict) -> bool:
+    """Check if result is an error envelope."""
+    return isinstance(result, dict) and result.get("isError") is True
 
 
 async def get_detected_objects(
     target_labels: Optional[List[str]] = None,
     min_confidence: float = 0.5
-) -> str:
+) -> List[Any]:
     """MCP tool: Get object detections from current frame.
 
     Runs YOLO object detection on current camera frame and returns
     detected objects with labels, confidence scores, and bounding boxes.
+
+    D3.12: Uses singleton VisionTools instance from server.
 
     YOLO Detection Details:
         Uses YOLOv8-nano (or mock in SITL) for real-time detection.
@@ -558,17 +640,56 @@ async def get_detected_objects(
                        Higher = fewer but more accurate detections.
 
     Returns:
-        JSON string with detection results.
+        List of MCP content items (TextContent for detection JSON,
+        ImageContent for captured frame if available).
     """
-    tools = VisionTools()
-    result = await tools.get_detected_objects(
+    tools = get_vision_tools_instance()
+
+    # First capture a frame to ensure we have fresh data
+    frame_result = await tools.capture_frame()
+
+    # Check if frame capture failed (error envelope)
+    if _is_error_envelope(frame_result):
+        # Return error as text content
+        return [mcp_types.TextContent(type="text", text=json.dumps(frame_result))]
+
+    # Get detections
+    detection_result = await tools.get_detected_objects(
         target_labels=target_labels,
         min_confidence=min_confidence
     )
-    return json.dumps(result)
+
+    # Check if detection failed (error envelope)
+    if _is_error_envelope(detection_result):
+        # Return error as text content
+        return [mcp_types.TextContent(type="text", text=json.dumps(detection_result))]
+
+    # Build combined response with detections and image
+    response_items = []
+
+    # Add detection results as TextContent
+    response_items.append(mcp_types.TextContent(
+        type="text",
+        text=json.dumps(detection_result)
+    ))
+
+    # Add image as ImageContent if available
+    image_base64 = frame_result.get("image_base64")
+    image_format = frame_result.get("format", "PNG").lower()
+    if image_base64:
+        mime_type = f"image/{image_format.lower()}"
+        if image_format.lower() == "jpg":
+            mime_type = "image/jpeg"
+        response_items.append(mcp_types.ImageContent(
+            type="image",
+            data=image_base64,
+            mimeType=mime_type
+        ))
+
+    return response_items
 
 
-async def detect_objects(confidence_threshold: float = 0.5) -> str:
+async def detect_objects(confidence_threshold: float = 0.5) -> List[Any]:
     """MCP tool: Detect objects in current frame with confidence threshold.
 
     This is an alias for get_detected_objects with a simpler interface
@@ -582,6 +703,7 @@ async def detect_objects(confidence_threshold: float = 0.5) -> str:
                              Range: 0.0 (all detections) to 1.0 (perfect only)
 
     Returns:
-        JSON string with detection results.
+        List of MCP content items (TextContent for detection JSON,
+        ImageContent for captured frame).
     """
     return await get_detected_objects(min_confidence=confidence_threshold)

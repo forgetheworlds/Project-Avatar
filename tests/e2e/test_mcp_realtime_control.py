@@ -2,16 +2,47 @@
 """
 End-to-End MCP Real-Time Drone Control Test
 
-Tests the complete MCP server with real-time flight control:
-1. Connect to SITL
-2. Arm and takeoff
-3. Real-time velocity control (20Hz streaming)
-4. Position hold
-5. Body-relative movement
-6. Return to launch
+================================================================================
+TEST SUITE OVERVIEW
+================================================================================
+This standalone test validates the complete MCP (Model Context Protocol) server
+integration with real-time flight control. Unlike the pytest-based tests, this
+script can be run directly and provides a comprehensive validation that the
+MCP server correctly exposes flight control tools to AI agents.
 
-This test validates that Claude Code can control the drone in real-time
-through the MCP protocol.
+WHY THIS IS AN E2E TEST (NOT A UNIT TEST):
+-------------------------------------------
+- This test exercises the COMPLETE stack: MCP server → Flight tools →
+  ConnectionManager → MAVSDK → PX4 SITL → Gazebo physics
+- Unit tests would mock the MCP layer and flight tools; this test validates the
+  actual protocol serialization, transport, and tool invocation
+- It tests the REAL latency and timing characteristics that AI agents will
+  experience when controlling the drone through the MCP protocol
+- The test validates tool discovery, JSON-RPC serialization, and async execution
+  that unit tests cannot adequately represent
+
+SCENARIOS COVERED:
+------------------
+1. Setup & Connection         - Initialize all components and connect to SITL
+2. Arm & Takeoff              - High-level takeoff tool
+3. Real-time Velocity Control  - 20Hz streaming via set_velocity tool
+4. Position Hold              - Hold tool with drift monitoring
+5. Body-Relative Movement     - fly_body_offset tool (bonus)
+6. Telemetry Access           - get_telemetry tool (bonus)
+7. Return to Launch           - RTL for safe landing
+
+USAGE:
+    python tests/e2e/test_mcp_realtime_control.py
+
+    Or with pytest:
+    pytest tests/e2e/test_mcp_realtime_control.py -v --run-sitl
+
+Prerequisites:
+    - PX4 SITL running: make px4_sitl gz_x500
+    - Gazebo simulation visible
+    - MCP server dependencies installed
+
+Expected Runtime: 2-3 minutes
 """
 
 import asyncio
@@ -35,7 +66,35 @@ from avatar.mcp_server.tools.telemetry_tools import get_telemetry, get_status
 
 
 class MCPRealtimeTest:
-    """End-to-end real-time control test via MCP."""
+    """
+    End-to-end real-time control test via MCP.
+
+    This class encapsulates the complete test lifecycle for MCP-based drone
+    control. It manages component initialization, test execution, cleanup,
+    and result reporting.
+
+    Architecture Under Test:
+    ------------------------
+    Claude Code / AI Agent
+           |
+           | MCP Protocol (JSON-RPC)
+           v
+    Avatar MCP Server
+           |
+           | Tool Invocation
+           v
+    FlightTools (async tools)
+           |
+           | MAVSDK Commands
+           v
+    ConnectionManager → PX4 SITL → Gazebo
+
+    Why This Matters:
+    -----------------
+    This is the exact path an AI agent (like Claude Code) would use to control
+    the drone. Validating this path ensures the system works for the intended
+    use case: natural language drone control via AI agents.
+    """
 
     def __init__(self):
         self.results: List[Dict[str, Any]] = []
@@ -45,7 +104,32 @@ class MCPRealtimeTest:
         self.flight_tools = FlightTools()
 
     async def setup(self) -> bool:
-        """Initialize all components."""
+        """
+        Initialize all components for testing.
+
+        ================================================================================
+        SETUP FLOW
+        ================================================================================
+        1. Print test banner with prerequisites
+        2. Connect to SITL via ConnectionManager
+        3. Initialize TelemetryCache with the connected drone
+        4. Initialize StateMachine with initial states
+        5. Return True if all components ready
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - ConnectionManager successfully connects to udp://:14540
+        - Drone instance is available from ConnectionManager
+        - TelemetryCache initializes and starts background refresh
+        - StateMachine transitions: DISCONNECTED → GROUNDED
+        - All components ready within 10 seconds
+
+        Failure Modes:
+        - SITL not running: Connection timeout
+        - MAVSDK not installed: Import errors
+        - Port conflict: Connection refused
+        """
         print("\n" + "="*60)
         print("MCP REAL-TIME DRONE CONTROL TEST")
         print("="*60)
@@ -73,7 +157,40 @@ class MCPRealtimeTest:
             return False
 
     async def test_arm_and_takeoff(self) -> bool:
-        """Test arm and takeoff via MCP tool."""
+        """
+        Test arm and takeoff via MCP tool.
+
+        ================================================================================
+        TEST SCENARIO
+        ================================================================================
+        Validates the high-level arm_and_takeoff MCP tool that combines arming
+        and takeoff into a single operation suitable for AI agents.
+
+        Tool: arm_and_takeoff(altitude_m=10.0)
+
+        Expected Behavior:
+        - Arms the drone motors
+        - Takes off to specified altitude (10m)
+        - Returns success confirmation with current state
+        - Handles errors gracefully
+
+        ================================================================================
+        TEST FLOW
+        ================================================================================
+        1. Call arm_and_takeoff tool with altitude_m=10.0
+        2. Parse JSON result
+        3. Verify success=True in result
+        4. Log altitude and state from result
+        5. Record test result
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - Tool returns JSON with success=True
+        - Altitude reported is near 10m
+        - State is "hovering" or "flying"
+        - No exceptions raised
+        """
         print("\n[4/6] Testing arm_and_takeoff...")
 
         try:
@@ -97,7 +214,47 @@ class MCPRealtimeTest:
             return False
 
     async def test_realtime_velocity_control(self) -> bool:
-        """Test real-time velocity control (20Hz streaming simulation)."""
+        """
+        Test real-time velocity control (20Hz streaming simulation).
+
+        ================================================================================
+        TEST SCENARIO
+        ================================================================================
+        Tests the core real-time control capability: streaming velocity commands
+        at 20Hz via the set_velocity MCP tool.
+
+        This is the PRIMARY control mode for AI agents - sending natural language
+        commands like "fly forward at 2 m/s for 3 seconds" translates to a
+        stream of velocity setpoints.
+
+        Tool: set_velocity(north_m_s, east_m_s, down_m_s, duration_s)
+
+        ================================================================================
+        TEST FLOW
+        ================================================================================
+        1. Start timing for 3-second test duration
+        2. Loop until duration elapsed:
+           a. Call set_velocity(north_m_s=2.0) to fly north
+           b. Parse result and verify success
+           c. Increment iteration counter
+           d. Maintain 20Hz timing (50ms intervals)
+        3. Calculate actual achieved rate
+        4. Verify rate >= 15Hz (allowing tolerance)
+        5. Log results
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - All velocity commands return success=True
+        - Iteration count reflects ~60 setpoints (20Hz × 3s)
+        - Actual rate >= 15Hz (allowing for system jitter)
+        - No dropped commands or errors
+
+        Performance Note:
+        - 20Hz requires 50ms intervals
+        - Test tolerates down to 15Hz due to Python async overhead
+        - Real system would use C++ for guaranteed 20Hz
+        """
         print("\n[5/6] Testing real-time velocity control (20Hz)...")
 
         try:
@@ -155,7 +312,39 @@ class MCPRealtimeTest:
             return False
 
     async def test_position_hold(self) -> bool:
-        """Test position hold."""
+        """
+        Test position hold.
+
+        ================================================================================
+        TEST SCENARIO
+        ================================================================================
+        Tests the hold MCP tool that commands the drone to maintain its current
+        position (hover/loiter).
+
+        Tool: hold(duration_s=2.0)
+
+        Expected Behavior:
+        - Command drone to hold current position
+        - Monitor position drift during hold
+        - Return max drift and duration in result
+
+        ================================================================================
+        TEST FLOW
+        ================================================================================
+        1. Call hold tool with duration_s=2.0
+        2. Parse JSON result
+        3. Verify success=True
+        4. Log duration and max drift from result
+        5. Record test result
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - Tool returns success=True
+        - Duration matches or exceeds requested (2s)
+        - Max drift is reported
+        - No exceptions raised
+        """
         print("\n[6/6] Testing position hold...")
 
         try:
@@ -176,7 +365,37 @@ class MCPRealtimeTest:
             return False
 
     async def test_telemetry_realtime(self) -> bool:
-        """Test real-time telemetry access."""
+        """
+        Test real-time telemetry access.
+
+        ================================================================================
+        TEST SCENARIO (BONUS TEST)
+        ================================================================================
+        Validates the telemetry access performance through the get_telemetry MCP tool.
+
+        The TelemetryCache provides sub-millisecond reads of cached telemetry,
+        which is critical for AI agents making flight decisions.
+
+        Tool: get_telemetry()
+
+        ================================================================================
+        TEST FLOW
+        ================================================================================
+        1. Query telemetry 10 times in rapid succession
+        2. Measure response time for each query
+        3. Calculate average and max response times
+        4. Rate performance:
+           - <10ms: EXCELLENT (cache working perfectly)
+           - <100ms: GOOD (acceptable)
+           - >100ms: SLOW (investigate)
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - All 10 telemetry queries succeed
+        - Average response <100ms
+        - Cache performance rated as GOOD or EXCELLENT
+        """
         print("\n[BONUS] Testing real-time telemetry (100ms cache)...")
 
         try:
@@ -210,7 +429,35 @@ class MCPRealtimeTest:
             return False
 
     async def test_body_offset(self) -> bool:
-        """Test body-relative movement."""
+        """
+        Test body-relative movement.
+
+        ================================================================================
+        TEST SCENARIO (BONUS TEST)
+        ================================================================================
+        Tests the fly_body_offset MCP tool that moves the drone relative to its
+        current body frame (forward/right/up).
+
+        This tool converts natural language like "move forward 5 meters" into
+        GPS coordinates using the current heading and position.
+
+        Tool: fly_body_offset(forward_m, right_m, up_m, speed_m_s)
+
+        ================================================================================
+        TEST FLOW
+        ================================================================================
+        1. Call fly_body_offset with forward_m=5.0
+        2. Parse JSON result
+        3. Verify success=True
+        4. Log offset and transform matrix
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - Tool returns success=True
+        - Offset reflects requested movement
+        - Transform matrix shows heading-based rotation applied
+        """
         print("\n[BONUS] Testing body-relative movement...")
 
         try:
@@ -235,7 +482,37 @@ class MCPRealtimeTest:
             return False
 
     async def test_rtl(self) -> bool:
-        """Test return to launch."""
+        """
+        Test return to launch.
+
+        ================================================================================
+        TEST SCENARIO
+        ================================================================================
+        Tests the rtl MCP tool for mission termination. This tool initiates Return
+        to Launch, which flies the drone back to its takeoff point and lands it.
+
+        Tool: rtl()
+
+        This is the primary safety tool for ending missions and recovering from
+        failures. It must work reliably in all conditions.
+
+        ================================================================================
+        TEST FLOW
+        ================================================================================
+        1. Call rtl tool
+        2. Parse JSON result
+        3. Verify success=True
+        4. Log home position for reference
+        5. Wait for landing (RTL includes descent)
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - Tool returns success=True
+        - Home position is reported in result
+        - RTL is initiated successfully
+        - Drone lands at home position
+        """
         print("\n[FINAL] Testing return to launch (RTL)...")
 
         try:
@@ -255,7 +532,12 @@ class MCPRealtimeTest:
             return False
 
     async def cleanup(self):
-        """Cleanup resources."""
+        """
+        Cleanup resources after testing.
+
+        Releases all initialized components in reverse order of creation
+        to ensure clean shutdown.
+        """
         print("\n[CLEANUP] Releasing resources...")
 
         try:
@@ -266,7 +548,36 @@ class MCPRealtimeTest:
             print(f"⚠ Cleanup warning: {e}")
 
     async def run_all_tests(self):
-        """Run complete test suite."""
+        """
+        Run complete test suite.
+
+        ================================================================================
+        TEST EXECUTION FLOW
+        ================================================================================
+        1. Run setup() to initialize components
+        2. If setup fails, abort with error
+        3. Execute core tests in sequence:
+           - Arm & Takeoff (required for subsequent tests)
+           - Real-time Velocity Control
+           - Position Hold
+        4. Execute bonus tests (non-fatal if they fail):
+           - Telemetry Real-time
+           - Body Offset
+        5. Execute RTL for safe landing
+        6. Run cleanup()
+        7. Print summary report
+        8. Return overall pass/fail status
+
+        ================================================================================
+        EXPECTED OUTCOMES
+        ================================================================================
+        - Setup completes successfully
+        - All 3 core tests pass
+        - Bonus tests may pass or fail (don't affect overall result)
+        - RTL executes for safe landing
+        - Cleanup completes without errors
+        - Summary shows passed/failed counts
+        """
         all_passed = True
 
         # Setup
@@ -330,7 +641,11 @@ class MCPRealtimeTest:
 
 
 async def main():
-    """Main entry point."""
+    """
+    Main entry point for standalone execution.
+
+    Prints prerequisites banner, checks for SITL, and runs the test suite.
+    """
     print("""
 ╔══════════════════════════════════════════════════════════════╗
 ║     Project Avatar - MCP Real-Time Control Test             ║

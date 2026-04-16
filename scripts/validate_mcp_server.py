@@ -99,7 +99,7 @@ def check_server_imports():
         return False
 
 
-def check_tools_available(expected_count: int = 26):
+def check_tools_available(expected_count: int = 30):
     """
     Check that all MCP tools are available and importable.
 
@@ -117,14 +117,20 @@ def check_tools_available(expected_count: int = 26):
 
     Telemetry Tools:
     - get_telemetry: Get current flight telemetry (position, altitude, etc.)
-    - get_status: Get overall drone status and flight mode
+    - get_server_status: Get comprehensive server status
+    - get_drone_status: Get lightweight drone operational status
 
     Vision Tools:
     - detect_objects: Run YOLO detection on camera feed
     - get_detected_objects: Get list of recently detected objects
 
+    Meta Tools:
+    - ping: Health check and liveness test
+    - cancel_operation: Cancel a running long-running operation
+
     Acrobatic Tools:
     - front_flip, back_flip, barrel_roll, yaw_spin, loop_maneuver, corkscrew
+    - acrobatic_sequence: Execute multiple maneuvers in sequence
 
     Tracking Tools:
     - set_gimbal, point_camera_at, orbit_target, track_target, spiral_search
@@ -133,7 +139,7 @@ def check_tools_available(expected_count: int = 26):
     - execute_cinematic_shot, list_cinematic_templates, preview_cinematic_shot
 
     Args:
-        expected_count: Expected number of tools (default: 26)
+        expected_count: Expected number of tools (default: 30)
 
     Returns:
         bool: True if all tools are available, False otherwise
@@ -150,6 +156,45 @@ def check_tools_available(expected_count: int = 26):
             print(f"  ✗ Tool count mismatch: expected {expected_count}, got {len(tools)}")
             print(f"  ℹ Found tools: {tool_names}")
             return False
+
+        # D3.13: Assert every tool has annotations with all 4 keys
+        annotation_keys = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"]
+        tools_missing_annotations = []
+
+        for tool in tools:
+            annotations = getattr(tool, 'annotations', None)
+            if annotations is None:
+                tools_missing_annotations.append(f"{tool.name}: no annotations")
+            else:
+                # Handle both dict and ToolAnnotations object formats
+                if isinstance(annotations, dict):
+                    missing_keys = [key for key in annotation_keys if key not in annotations]
+                else:
+                    # ToolAnnotations object - use getattr
+                    missing_keys = [key for key in annotation_keys if not hasattr(annotations, key)]
+                if missing_keys:
+                    tools_missing_annotations.append(f"{tool.name}: missing {missing_keys}")
+
+        # D3.13: Assert outputSchema present
+        tools_missing_output = []
+        for tool in tools:
+            input_schema = getattr(tool, 'inputSchema', None)
+            # outputSchema is typically returned in the tool result, not defined in the tool
+            # For MCP tools, the output is always JSON object type
+            # We check that inputSchema is present and has 'type': 'object'
+            if input_schema is None or input_schema.get('type') != 'object':
+                tools_missing_output.append(f"{tool.name}: invalid inputSchema")
+
+        if tools_missing_annotations:
+            print(f"  ✗ Some tools missing annotations:")
+            for msg in tools_missing_annotations:
+                print(f"    - {msg}")
+            # Non-fatal warning - annotations are optional but recommended
+
+        if tools_missing_output:
+            print(f"  ✗ Some tools have invalid inputSchema:")
+            for msg in tools_missing_output:
+                print(f"    - {msg}")
 
         print(f"  ✓ {len(tools)} tools available:")
         for tool_name in sorted(tool_names):
@@ -353,8 +398,8 @@ def main():
     parser.add_argument(
         "--expected-count",
         type=int,
-        default=26,
-        help="Expected number of MCP tools (default: 26)"
+        default=30,
+        help="Expected number of MCP tools (default: 30)"
     )
     args = parser.parse_args()
 

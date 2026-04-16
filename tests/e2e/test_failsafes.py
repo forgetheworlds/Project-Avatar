@@ -1,20 +1,42 @@
 """End-to-End Failsafe Trigger Tests.
 
-Tests safety failsafe behaviors including:
-- RC loss failsafe
-- Telemetry timeout
-- Geofence breach detection
-- Low battery Return to Launch (RTL)
-- Guardian emergency stop
+================================================================================
+TEST SUITE OVERVIEW
+================================================================================
+This test suite validates the drone's safety failsafe behaviors in a controlled
+SITL (Software In The Loop) simulation environment. Failsafes are critical
+safety mechanisms that protect the drone and surrounding area when something
+goes wrong during flight.
 
-All tests use SITL (Software In The Loop) simulation.
-No real hardware required.
+WHY THESE ARE E2E TESTS (NOT UNIT TESTS):
+-----------------------------------------
+- These tests exercise the COMPLETE safety chain: PX4 autopilot → MAVSDK
+  → Avatar state machine → Guardian process → Escalation matrix
+- Unit tests would mock the autopilot responses; these tests verify actual
+  PX4 failsafe triggers and state transitions in the simulation
+- Real timing matters: heartbeat timeouts, telemetry propagation delays, and
+  state machine transitions all interact in ways that mocked unit tests cannot
+  accurately represent
+- The tests verify that the GuardianProcess and EscalationMatrix correctly
+  integrate with the actual MAVSDK telemetry streams
 
-Note: Some failsafes require specific PX4 parameter configurations
-and may need manual simulation of conditions.
+SCENARIOS COVERED:
+------------------
+1. RC Loss Failsafe       - What happens when radio control link is lost
+2. Telemetry Timeout      - Detection of stale/offline telemetry
+3. Geofence Breach        - Violation of geographic flight boundaries
+4. Low Battery RTL         - Automatic return when battery is depleted
+5. Guardian Emergency Stop - Immediate kill switch activation
+6. Failsafe Priority       - Correct ordering of severity levels
+7. Auto Recovery           - System recovery after failsafe trigger
 
-Usage:
+USAGE:
     pytest tests/e2e/test_failsafes.py -v --run-sitl
+
+Requirements:
+    - PX4 SITL running: make px4_sitl gz_x500
+    - MAVSDK-Python installed
+    - Sufficient simulation time (tests may take 2-5 minutes each)
 """
 
 import asyncio
@@ -38,6 +60,10 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # RC LOSS FAILSAFE TESTS
 # =============================================================================
+# Scenario: The operator loses radio control connection to the drone.
+# Expected Outcome: Drone automatically returns to launch (RTL) position.
+# Safety Level: Critical - prevents flyaway when control link is lost.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -51,16 +77,44 @@ async def test_rc_loss_failsafe(
     """
     Test RC (Radio Control) loss failsafe behavior.
 
-    In PX4, when RC link is lost and NAV_RCL_ACT is set appropriately,
-    the drone should trigger Return to Launch.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Simulates the loss of radio control link between operator and drone. In real
+    operations, this could happen due to:
+    - Pilot moving out of range
+    - Radio interference
+    - Controller battery depletion
+    - Antenna damage or disconnection
 
-    Note: This test simulates the failsafe by directly triggering the
-    state machine transition, as simulating actual RC loss in SITL
-    requires specific PX4 parameter configuration.
+    PX4 Configuration Required:
+        - NAV_RCL_ACT parameter must be set to RTL (Return to Launch)
+        - RC loss timeout must be configured
 
-    Verifies:
-        - State machine correctly handles rc_loss trigger
-        - RTL state is entered when RC loss is detected
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to 5m altitude (establish flying state)
+    2. Verify drone is in flying state via state_machine.is_flying
+    3. Record current GPS position for reference
+    4. Trigger rc_loss failsafe via state machine
+    5. Verify state transitions to RTL (Return to Launch)
+    6. Wait for automatic landing sequence to complete
+    7. Verify drone is on ground after RTL completes
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - State machine accepts the rc_loss trigger
+    - Current state transitions to RTL (not HOVERING or POSITION_CONTROL)
+    - Escalation matrix reports appropriate severity level
+    - Drone lands within 60 seconds of RTL initiation
+    - Final state allows safe disarm
+
+    Note on SITL Limitation:
+        This test simulates the failsafe by directly triggering the state
+        machine transition, as simulating actual RC loss in SITL requires
+        specific PX4 parameter reconfiguration that would affect other tests.
     """
     logger.info("TEST: RC Loss Failsafe")
 
@@ -110,6 +164,10 @@ async def test_rc_loss_failsafe(
 # =============================================================================
 # TELEMETRY TIMEOUT TESTS
 # =============================================================================
+# Scenario: Telemetry data stops arriving from the drone.
+# Expected Outcome: GuardianProcess detects timeout and escalates appropriately.
+# Safety Level: High - loss of telemetry means loss of situational awareness.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -123,16 +181,45 @@ async def test_telemetry_timeout(
     """
     Test telemetry timeout detection and response.
 
-    Verifies that the GuardianProcess correctly detects heartbeat timeouts
-    and the escalation matrix responds appropriately.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Simulates loss of telemetry link between drone and ground station. This could
+    occur due to:
+    - Radio link degradation or dropout
+    - Companion computer failure
+    - Network routing issues in multi-hop setups
+    - Software crashes in telemetry pipeline
 
-    Note: We simulate telemetry timeout by not updating heartbeat,
-    as cutting actual telemetry would disconnect the test.
+    The GuardianProcess monitors heartbeat timestamps. If no heartbeat is received
+    within the configured timeout (default: 2 seconds), it declares the link
+    potentially compromised.
 
-    Verifies:
-        - Heartbeat timeout detection works
-        - Escalation matrix triggers on timeout
-        - Connection health reflects stale telemetry
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to establish a flying baseline
+    2. Update heartbeat to establish "healthy" baseline
+    3. Verify heartbeat check passes initially
+    4. WAIT for heartbeat to age beyond timeout threshold (no updates sent)
+    5. Verify heartbeat check now returns False (timeout detected)
+    6. Query escalation matrix with the stale heartbeat age
+    7. Verify appropriate escalation level is returned
+    8. Land the drone for safety
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Initial heartbeat check returns True (healthy)
+    - After timeout period, heartbeat check returns False
+    - Heartbeat age exceeds guardian.limits.heartbeat_timeout_s
+    - Escalation matrix returns event with level >= L2 (WARNING)
+    - Event includes appropriate action recommendation (e.g., "monitor closely")
+
+    Note on Test Design:
+        We cannot actually cut telemetry in SITL without disconnecting the test
+        itself. Instead, we stop updating the guardian heartbeat and let it age
+        out, which tests the same timeout detection logic.
     """
     logger.info("TEST: Telemetry Timeout")
 
@@ -188,6 +275,10 @@ async def test_telemetry_timeout(
 # =============================================================================
 # GEOFENCE BREACH TESTS
 # =============================================================================
+# Scenario: Drone flies beyond permitted geographic boundaries.
+# Expected Outcome: Geofence breach detected and RTL triggered.
+# Safety Level: Critical - prevents flyaway and airspace violations.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -201,16 +292,49 @@ async def test_geofence_breach(
     """
     Test geofence breach detection and RTL trigger.
 
-    Verifies that flying outside the configured geofence boundary
-    triggers the appropriate failsafe.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the geofence safety boundary system. Geofences are virtual geographic
+    boundaries that restrict where the drone can fly. This test validates:
 
-    Note: In SITL, we simulate this by checking guardian validation
-    of positions outside the geofence limit.
+    - Guardian correctly validates GPS positions against geofence limits
+    - Positions within geofence are approved for flight
+    - Positions exceeding max_distance_from_home_m are rejected
+    - State machine accepts geofence_breach failsafe trigger
+    - RTL is initiated when geofence is breached
 
-    Verifies:
-        - Guardian validates positions against geofence
-        - Positions outside geofence are rejected
-        - State machine accepts geofence_breach trigger
+    Real-world triggers for geofence breach:
+    - Strong wind pushing drone beyond safe area
+    - Navigation system drift/error accumulation
+    - Incorrect waypoint programming
+    - GPS spoofing or interference
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Set home position from current telemetry
+    2. Test validation of position 11m from home (should PASS - within geofence)
+    3. Test validation of position 500m from home (should FAIL - outside geofence)
+    4. Verify failure reason mentions distance/exceeds
+    5. Arm and takeoff to establish flight
+    6. Trigger geofence_breach failsafe via state machine
+    7. Verify state transitions to RTL
+    8. Query escalation matrix with simulated 550m distance
+    9. Verify L3+ escalation triggered
+    10. Wait for RTL landing
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Guardian.is_home_set becomes True after set_home()
+    - Position 11m from home: guardian.validate_command() returns (True, ...)
+    - Position 500m from home: guardian.validate_command() returns (False, reason)
+    - Failure reason contains "distance" or "exceeds"
+    - State machine accepts geofence_breach trigger
+    - Current state becomes RTL after trigger
+    - Escalation at 550m distance triggers L3+ (WARNING/CRITICAL)
+    - Drone lands within 60 seconds
     """
     logger.info("TEST: Geofence Breach")
 
@@ -288,6 +412,11 @@ async def test_geofence_breach(
 # =============================================================================
 # LOW BATTERY FAILSAFE TESTS
 # =============================================================================
+# Scenario: Battery voltage drops below safe levels during flight.
+# Expected Outcome: Automatic Return to Launch at low battery, emergency land
+# at critical battery.
+# Safety Level: Critical - prevents power loss mid-flight.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -301,16 +430,48 @@ async def test_low_battery_rth(
     """
     Test low battery Return to Home (RTH) / RTL trigger.
 
-    Verifies that the escalation matrix correctly identifies low battery
-    conditions and recommends RTL action.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the battery monitoring failsafe system. As battery voltage depletes,
+    the drone must take progressively more conservative actions:
 
-    Note: Actual battery level is read from SITL. We test the logic
-    by checking escalation at various battery levels.
+    Battery Level | Action
+    ------------- | ------
+    30-25%        | Warning notification (L1)
+    20%           | Return to Launch initiated (L4)
+    15%           | Critical warning (L4-L5)
+    5%            | Emergency landing at current position (L5-L6)
 
-    Verifies:
-        - Battery levels are read correctly
-        - Low battery triggers escalation
-        - Critical battery triggers immediate RTL
+    This test validates the EscalationMatrix correctly identifies battery
+    levels and recommends appropriate actions.
+
+    Note: SITL simulates battery behavior. Actual battery levels in simulation
+    may not deplete realistically, so we test the logic at various levels rather
+    than waiting for actual depletion.
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Read current battery level from telemetry
+    2. Test escalation matrix at levels: 30%, 25%, 20%, 15%, 5%
+    3. Verify levels <=20% trigger L4+ escalation
+    4. Arm and takeoff
+    5. Trigger low_battery failsafe via state machine
+    6. Verify state transitions to RTL
+    7. Wait for RTL landing sequence
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Battery telemetry is readable from SITL
+    - Escalation matrix returns appropriate events for each battery level
+    - Levels 30%, 25% may or may not trigger escalation (depends on thresholds)
+    - Levels 20%, 15%, 5% trigger L4+ (CRITICAL) escalation
+    - Low battery event includes action_taken recommendation ("rtl", "emergency")
+    - State machine accepts low_battery trigger
+    - Current state becomes RTL after trigger
+    - Drone lands within 60 seconds
     """
     logger.info("TEST: Low Battery RTH")
 
@@ -373,6 +534,10 @@ async def test_low_battery_rth(
 # =============================================================================
 # GUARDIAN EMERGENCY STOP TESTS
 # =============================================================================
+# Scenario: Immediate emergency requiring instant motor shutdown.
+# Expected Outcome: Guardian kill switch triggers EMERGENCY state.
+# Safety Level: Catastrophic - stops all flight immediately.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -386,17 +551,49 @@ async def test_guardian_emergency_stop(
     """
     Test Guardian emergency stop (kill switch) functionality.
 
-    Verifies that the kill switch failsafe can be triggered and
-    transitions the state machine to EMERGENCY state.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the most severe failsafe: the kill switch. This represents situations
+    where immediate flight termination is the safest option:
 
-    Note: In real flight, this would stop motors immediately.
-    In SITL, we verify the state transition but don't actually
-    kill the simulation (to allow cleanup).
+    - Pilot-initiated emergency stop via physical switch
+    - Software-detected unrecoverable flight condition
+    - External kill command from ground control station
+    - Loss of critical flight systems
 
-    Verifies:
-        - Kill switch trigger is accepted
-        - State transitions to EMERGENCY
-        - AsyncGuardian would trigger emergency stop
+    In real flight, this would disarm the drone immediately, stopping all motors.
+    In SITL, we verify the state machine logic but do NOT actually kill the
+    simulation (to allow proper test cleanup).
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to establish flight
+    2. Verify armed status via telemetry and state machine
+    3. Trigger kill_switch failsafe via state machine
+    4. Verify state transitions to EMERGENCY
+    5. Query escalation matrix with force_trigger=True
+    6. Verify L6 (CATASTROPHIC) escalation level
+    7. Verify action_taken includes "emergency" or "disarm"
+    8. Reset state machine for cleanup (don't actually kill SITL)
+    9. Land normally via land command
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Telemetry confirms armed=True before trigger
+    - state_machine.is_armed is True before trigger
+    - State machine accepts kill_switch trigger
+    - Current state becomes EMERGENCY after trigger
+    - Escalation level is L6 (CATASTROPHIC)
+    - Action recommendation includes emergency stop or disarm
+    - State machine can be reset after test (cleanup path works)
+
+    Safety Note:
+        This test does NOT actually stop the SITL simulation motors to allow
+        controlled landing for cleanup. In real hardware, kill switch is
+        immediate and irreversible.
     """
     logger.info("TEST: Guardian Emergency Stop")
 
@@ -460,6 +657,9 @@ async def test_guardian_emergency_stop(
 # =============================================================================
 # FAILSAFE INTEGRATION TESTS
 # =============================================================================
+# These tests validate the failsafe system as a whole - priority ordering,
+# recovery paths, and integration between components.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -473,13 +673,44 @@ async def test_failsafe_priority_order(
     """
     Test failsafe priority ordering.
 
-    Verifies that different failsafe triggers have appropriate
-    priority levels and the most severe takes precedence.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Different failsafe conditions have different severity levels. When multiple
+    conditions are present, the most severe should take precedence. This test
+    validates the priority hierarchy defined in the EscalationMatrix.
 
-    Verifies:
-        - Kill switch (L6) has highest priority
-        - Critical battery (L5) > Low battery (L2)
-        - Geofence breach (L4) > Geofence warning (L3)
+    Priority Hierarchy (from most to least severe):
+    - L6 CATASTROPHIC: total_system_failure, total_power_loss, kill_switch
+    - L5 CRITICAL:      battery_critical, comm_link_lost
+    - L4 WARNING:       battery_low, geofence_breach
+    - L3 ADVISORY:      geofence_warning
+    - L2 INFO:          comm_link_degraded
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Query escalation matrix for all known condition levels
+    2. Build priority mapping dictionary
+    3. Filter out None values (conditions not in matrix)
+    4. Log all valid priority levels for inspection
+    5. Verify ordering: total_system_failure >= battery_critical
+    6. Verify ordering: battery_critical > battery_low
+    7. Verify ordering: geofence_breach > geofence_warning
+    8. Verify ordering: comm_link_lost > comm_link_degraded
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - All queried conditions return valid EscalationLevel values
+    - L6 conditions have highest priority numbers
+    - Each severity tier is strictly greater than the one below it
+    - Priority ordering matches the documented hierarchy
+
+    Why This Matters:
+        If both low battery (L4) and geofence warning (L3) occur simultaneously,
+        the L4 battery condition should take precedence and trigger RTL, not the
+        L3 geofence warning which might just slow the drone.
     """
     logger.info("TEST: Failsafe Priority Order")
 
@@ -533,13 +764,50 @@ async def test_auto_failsafe_recovery(
     """
     Test automatic failsafe recovery paths.
 
-    Verifies that after a failsafe triggers, the system can
-    recover to a safe state.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Tests the complete failsafe recovery workflow. When a failsafe triggers and
+    RTL completes, the system should return to a safe, recoverable state. This
+    validates:
 
-    Verifies:
-        - After RTL, system lands and can disarm
-        - State machine transitions correctly through recovery
-        - Guardian clears alerts after recovery
+    - State machine correctly tracks recovery progression
+    - Telemetry sync updates state after landing
+    - Disarm is possible after failsafe recovery
+    - Guardian clears alerts appropriately
+
+    This test simulates the real-world scenario where a pilot must regain
+    control after an automated failsafe response.
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Reset state machine to DISARMED for clean start
+    2. Arm the drone
+    3. Takeoff to 5m
+    4. Transition state to HOVERING
+    5. Trigger low_battery failsafe
+    6. Verify state transitions to RTL
+    7. Wait for landing (RTL includes descent)
+    8. Sync state machine from telemetry (armed=True, in_air=False)
+    9. Log post-landing state
+    10. Attempt disarm (may auto-disarm depending on PX4 config)
+    11. Verify disarmed or log status if still armed
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - State machine accepts low_battery trigger and enters RTL
+    - Landing completes within 60 seconds
+    - After landing, telemetry shows in_air=False
+    - State machine can be synced from telemetry without error
+    - Disarm command is accepted or already disarmed
+    - System is in safe state after recovery
+
+    Note on SITL:
+        Auto-disarm behavior in SITL depends on PX4 parameter configuration.
+        The test does not strictly assert disarmed state if auto-disarm is not
+        configured, but logs the actual state for inspection.
     """
     logger.info("TEST: Auto Failsafe Recovery")
 

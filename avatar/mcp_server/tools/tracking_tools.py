@@ -96,8 +96,38 @@ from avatar.mcp_server.tools.flight_tools import (
     set_velocity, goto_gps, hold, fly_body_offset
 )
 from avatar.core.decorators import timeout, require_state
+from avatar.mcp_server.errors import to_error_envelope, ErrorCode
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# STANDARD TOOL ANNOTATIONS
+# =============================================================================
+# These are the 4 standard hints for MCP tool annotations as per D2.1 contract.
+
+ANNOTATIONS_READ_ONLY = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+
+ANNOTATIONS_WRITE_SAFE = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
+ANNOTATIONS_DESTRUCTIVE = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
+
+OUTPUT_SCHEMA = {"type": "object"}
 
 # =============================================================================
 # HARDWARE LIMITS AND CONSTANTS
@@ -547,6 +577,10 @@ async def set_gimbal(
 ) -> str:
     """Set gimbal angles to control camera orientation independently of drone.
 
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: False, destructiveHint: False, idempotentHint: True, openWorldHint: False}
+        outputSchema: {type: object}
+
     This is the low-level gimbal control function that sets absolute angles.
     It clamps inputs to safe hardware limits before sending to MAVSDK.
 
@@ -592,13 +626,15 @@ async def set_gimbal(
     roll = _clamp(roll_deg, GIMBAL_ROLL_MIN, GIMBAL_ROLL_MAX)
 
     cm = ConnectionManager()
-    drone = cm.get_drone()
+    drone = await cm.get_drone()
 
     if not drone:
-        return json.dumps({
-            "success": False,
-            "error": "Drone not connected"
-        })
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "Drone not connected",
+            recoverable=True,
+            suggested_action="Connect to drone before setting gimbal"
+        ))
 
     try:
         # Get gimbal plugin from MAVSDK
@@ -634,6 +670,10 @@ async def point_camera_at(
 ) -> str:
     """Point camera at specific GPS coordinates without moving the drone.
 
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: False, destructiveHint: False, idempotentHint: True, openWorldHint: True}
+        outputSchema: {type: object}
+
     This is a convenience function that combines position-based angle calculation
     with gimbal control. The drone maintains its current position while the camera
     reorients to frame the target coordinates.
@@ -662,14 +702,16 @@ async def point_camera_at(
         >>> await point_camera_at(lat=37.7749, lon=-122.4194, alt_m=5.0)
     """
     cm = ConnectionManager()
-    drone = cm.get_drone()
+    drone = await cm.get_drone()
     cache = cm.get_telemetry_cache()
 
     if not drone or not cache:
-        return json.dumps({
-            "success": False,
-            "error": "Drone not connected or no telemetry cache"
-        })
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "Drone not connected or no telemetry cache",
+            recoverable=True,
+            suggested_action="Connect to drone before pointing camera"
+        ))
 
     try:
         # Get current drone position from telemetry cache
@@ -711,6 +753,10 @@ async def orbit_target(
     keep_camera_locked: bool = True
 ) -> str:
     """Orbit around a target while keeping camera locked on it.
+
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: False, destructiveHint: False, idempotentHint: False, openWorldHint: True}
+        outputSchema: {type: object}
 
     This is the primary cinematic tracking mode. The drone flies a circular path
     around a target point while continuously pointing the camera at the center.
@@ -771,23 +817,27 @@ async def orbit_target(
         ... )
     """
     cm = ConnectionManager()
-    drone = cm.get_drone()
+    drone = await cm.get_drone()
     cache = cm.get_telemetry_cache()
 
     if not drone or not cache:
-        return json.dumps({
-            "success": False,
-            "error": "Drone not connected"
-        })
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "Drone not connected",
+            recoverable=True,
+            suggested_action="Connect to drone before orbiting"
+        ))
 
     try:
         # Get current telemetry for altitude reference
         telem = await cache.get_latest()
         if not telem:
-            return json.dumps({
-                "success": False,
-                "error": "No telemetry available"
-            })
+            return json.dumps(to_error_envelope(
+                ErrorCode.MAV_NOT_CONNECTED,
+                "No telemetry available",
+                recoverable=True,
+                suggested_action="Wait for telemetry data"
+            ))
 
         # Calculate orbit altitude and validate safety limits
         # orbit_altitude = target_alt + offset (or current_alt + offset if target_alt unknown)
@@ -924,6 +974,10 @@ async def track_target(
 ) -> str:
     """Track and follow a moving target with predictive velocity compensation.
 
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: False, destructiveHint: False, idempotentHint: False, openWorldHint: True}
+        outputSchema: {type: object}
+
     This is the primary dynamic tracking mode for following moving subjects
     (people, vehicles, boats). It uses dead reckoning prediction to compensate
     for system latency and maintain smooth target lock.
@@ -1000,14 +1054,16 @@ async def track_target(
         ... )
     """
     cm = ConnectionManager()
-    drone = cm.get_drone()
+    drone = await cm.get_drone()
     cache = cm.get_telemetry_cache()
 
     if not drone or not cache:
-        return json.dumps({
-            "success": False,
-            "error": "Drone not connected"
-        })
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "Drone not connected",
+            recoverable=True,
+            suggested_action="Connect to drone before tracking"
+        ))
 
     try:
         # Initialize target tracking state
@@ -1158,6 +1214,10 @@ async def spiral_search(
 ) -> str:
     """Perform expanding spiral search pattern for area coverage.
 
+    MCP Tool Metadata:
+        annotations: {readOnlyHint: False, destructiveHint: False, idempotentHint: False, openWorldHint: True}
+        outputSchema: {type: object}
+
     This mission pattern executes a systematic expanding spiral starting from
     a center point, useful for search and rescue, area survey, or establishing
     visual contact with targets.
@@ -1206,14 +1266,16 @@ async def spiral_search(
         ... )
     """
     cm = ConnectionManager()
-    drone = cm.get_drone()
+    drone = await cm.get_drone()
     cache = cm.get_telemetry_cache()
 
     if not drone or not cache:
-        return json.dumps({
-            "success": False,
-            "error": "Drone not connected"
-        })
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "Drone not connected",
+            recoverable=True,
+            suggested_action="Connect to drone before spiral search"
+        ))
 
     try:
         # Phase 1: Navigate to spiral center

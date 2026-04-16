@@ -1,16 +1,43 @@
 """End-to-End Performance Benchmark Tests.
 
-Tests system performance requirements:
-- <100ms command latency
-- <50ms heartbeat precision
-- <1ms telemetry cache reads
-- 20Hz offboard streaming
+================================================================================
+TEST SUITE OVERVIEW
+================================================================================
+This test suite validates that the Avatar drone control system meets its
+performance requirements. These tests measure timing, latency, throughput, and
+jitter across all critical operations.
 
-All tests use SITL (Software In The Loop) simulation.
-No real hardware required.
+WHY THESE ARE E2E TESTS (NOT UNIT TESTS):
+-----------------------------------------
+- These tests measure REAL performance characteristics of the integrated system:
+  * Actual MAVSDK command latency to PX4
+  * True telemetry propagation delays
+  * Real heartbeat timing with asyncio event loop jitter
+  * Actual cache read performance with memory hierarchy effects
+- Unit tests using mocks would report fake/simulated timing
+- Performance characteristics emerge from component interactions that cannot
+  be predicted from unit test results
+- These tests catch performance regressions that only appear under real load
 
-Usage:
+PERFORMANCE REQUIREMENTS VALIDATED:
+-----------------------------------
+Requirement              | Target     | Tests
+-------------------------|------------|----------------------------------------
+Command latency          | <100ms     | test_command_response_time
+Connection latency       | <100ms     | test_connection_latency
+Telemetry poll latency   | <50ms      | test_telemetry_poll_latency
+Heartbeat precision      | 20Hz ±10ms | test_heartbeat_precision
+Cache read speed         | <1ms       | test_telemetry_cache_speed
+State machine transitions| <10ms      | test_state_machine_transitions
+Offboard streaming       | >=18Hz     | test_offboard_streaming_rate
+
+USAGE:
     pytest tests/e2e/test_performance.py -v --run-sitl
+
+Requirements:
+    - PX4 SITL running: make px4_sitl gz_x500
+    - Quiet system (performance tests are sensitive to load)
+    - 3-5 minutes for complete test run
 """
 
 import asyncio
@@ -35,6 +62,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # CONNECTION LATENCY TESTS
 # =============================================================================
+# These tests measure the time required to establish and verify the MAVSDK
+# connection to PX4. Fast connection is critical for rapid mission startup.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -48,9 +78,45 @@ async def test_connection_latency(
     """
     Test MAVSDK connection establishment latency.
 
-    Verifies:
-        - First connection completes in <5000ms
-        - Subsequent get_drone() calls are <100ms
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Measures the round-trip latency for connection state queries. This validates
+    that the MAVSDK-PX4 link is responsive and suitable for real-time control.
+
+    Why This Matters:
+    - Slow connections indicate network/protocol issues
+    - Latency >100ms suggests UDP packet loss or CPU overload
+    - Consistent latency is as important as absolute speed (low jitter)
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Perform 10 connection state queries in a loop
+    2. For each query:
+       - Record start timestamp
+       - Query connection state via drone.core.connection_state()
+       - Verify is_connected is True
+       - Calculate elapsed time in milliseconds
+    3. Calculate statistics across all 10 samples:
+       - Average latency
+       - Maximum latency
+       - Minimum latency
+    4. Log all statistics
+    5. Record to performance collector
+    6. Assert average <100ms and max <200ms
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - All 10 connection queries succeed
+    - Average latency <100ms
+    - Maximum latency <200ms (allowing for occasional system jitter)
+    - All queries report connected=True
+
+    Failure Analysis:
+    - If avg >100ms: System overloaded or network issues
+    - If max >> avg: Inconsistent latency, check for background processes
     """
     logger.info("TEST: Connection Latency")
 
@@ -96,6 +162,9 @@ async def test_connection_latency(
 # =============================================================================
 # COMMAND RESPONSE TIME TESTS
 # =============================================================================
+# These tests measure how quickly flight commands are accepted by the autopilot.
+# Fast response is essential for responsive control and safety.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -109,11 +178,56 @@ async def test_command_response_time(
     """
     Test command response times for flight operations.
 
-    Verifies:
-        - Arm command: <5000ms
-        - Takeoff command: <5000ms
-        - Land command: <100ms (command acceptance)
-        - Hold command: <100ms
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Measures end-to-end latency for critical flight commands from the moment
+    the command is sent via MAVSDK until the acknowledgment is received.
+
+    Commands Tested:
+    - Arm: High latency acceptable (motor controller initialization)
+    - Takeoff: High latency acceptable (state machine transitions)
+    - Hold: Must be fast (<100ms) for responsive control
+    - Land: Must be fast (<100ms) for safety
+
+    Why Different Limits:
+    - Arm/Takeoff involve complex state changes, allow 5000ms
+    - Hold/Land are simple mode changes, must be <100ms
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Test ARM command:
+       - Measure send time
+       - Wait for armed confirmation
+       - Log latency
+    2. Test TAKEOFF command:
+       - Set takeoff altitude
+       - Measure send time
+       - Wait for in-air
+       - Log latency
+    3. Test HOLD command:
+       - Measure send time
+       - Log latency
+       - Assert <100ms
+    4. Test LAND command:
+       - Measure send time
+       - Wait for on-ground
+       - Log latency
+       - Assert <100ms
+    5. Record all metrics to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Arm latency <5000ms
+    - Takeoff latency <5000ms
+    - Hold latency <100ms
+    - Land latency <100ms
+
+    Performance Budget:
+    - User-perceived responsiveness requires <100ms for interactive commands
+    - Arm/Takeoff are non-interactive (one-time per mission), allow longer
     """
     logger.info("TEST: Command Response Time")
 
@@ -183,10 +297,49 @@ async def test_telemetry_poll_latency(
     """
     Test telemetry polling latency.
 
-    Verifies:
-        - Position telemetry: <50ms
-        - Battery telemetry: <50ms
-        - Armed state check: <50ms
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Measures the latency of telemetry stream reads. Fast telemetry is essential
+    for the Guardian safety system to detect anomalies quickly.
+
+    Streams Tested:
+    - Position (GPS coordinates)
+    - Battery (charge level, voltage)
+
+    Why <100ms Matters:
+    - Guardian evaluates safety 10-20 times per second
+    - Slow telemetry delays failsafe detection
+    - 100ms = 1m position error at 10 m/s flight speed
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Test position telemetry:
+       - Collect 20 samples
+       - Measure time to receive one position update
+       - 50ms delay between samples to avoid batching
+       - Calculate average and max latency
+    2. Test battery telemetry:
+       - Collect 20 samples
+       - Measure time to receive one battery update
+       - 50ms delay between samples
+       - Calculate average and max latency
+    3. Log all statistics
+    4. Record to performance collector
+    5. Assert averages <100ms
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Position telemetry avg <100ms
+    - Battery telemetry avg <100ms
+    - Max latency <200ms for both
+
+    Note on MAVSDK:
+    - MAVSDK uses async generators that may buffer data
+    - First read may be slower due to initialization
+    - Subsequent reads should be fast (<50ms typical)
     """
     logger.info("TEST: Telemetry Poll Latency")
 
@@ -240,6 +393,9 @@ async def test_telemetry_poll_latency(
 # =============================================================================
 # HEARTBEAT PRECISION TESTS
 # =============================================================================
+# These tests validate the 20Hz heartbeat system that maintains the connection
+# and provides timing reference for offboard control.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -254,10 +410,44 @@ async def test_heartbeat_precision(
     """
     Test 20Hz heartbeat precision.
 
-    Verifies:
-        - Heartbeat interval is 50ms (20Hz)
-        - Jitter is <10ms (std dev)
-        - Missed heartbeats are <1%
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Validates that the GuardianProcess maintains a precise 20Hz heartbeat,
+    which is essential for:
+    - Connection health monitoring
+    - Offboard control timing reference
+    - Detecting communication timeouts
+
+    Metrics:
+    - Target interval: 50ms (20Hz)
+    - Miss rate: <1% (fewer than 1 missed per 100)
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Allow 3 seconds for heartbeat accumulation
+    2. Query guardian status
+    3. Extract heartbeat count and missed count
+    4. Calculate miss rate as percentage
+    5. Log heartbeat count and miss rate
+    6. Assert miss rate <5%
+    7. Calculate achieved frequency from uptime
+    8. Assert achieved rate >=19Hz
+    9. Record metrics to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Heartbeat count > 50 (3 seconds × 20Hz)
+    - Miss rate <5%
+    - Achieved rate >=19Hz
+    - Status reports healthy connection
+
+    Why 20Hz Matters:
+    - MAVLink offboard mode requires minimum 2Hz, recommends 10Hz+
+    - 20Hz provides safety margin and smooth control
+    - PX4 watchdog uses heartbeat to detect companion computer failures
     """
     logger.info("TEST: Heartbeat Precision (20Hz)")
 
@@ -306,9 +496,53 @@ async def test_heartbeat_service_precision(
     """
     Test HeartbeatService 20Hz emission precision.
 
-    Verifies:
-        - Heartbeat emission at exactly 50ms intervals
-        - Std deviation <10ms
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Measures the actual timing precision of the HeartbeatService using statistical
+    analysis of interval distributions. This validates that the asyncio-based
+    timing achieves the required precision.
+
+    Metrics:
+    - Target interval: 50.0ms
+    - Std deviation: <10ms (jitter tolerance)
+    - Outliers: <5% beyond ±20ms
+
+    Why Std Deviation Matters:
+    - High jitter causes inconsistent control feel
+    - MAVLink framing has jitter, but service should minimize it
+    - Low std deviation indicates well-timed async event loop
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Create dedicated HeartbeatService with 20Hz config
+    2. Set up callback to record timestamps
+    3. Start service
+    4. Collect samples for 2 seconds
+    5. Stop service
+    6. Calculate intervals between consecutive timestamps
+    7. Calculate statistics:
+       - Average interval
+       - Standard deviation
+       - Achieved rate
+    8. Log all statistics
+    9. Assert interval within 1ms of 50ms
+    10. Assert std dev <20ms
+    11. Record to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Average interval 49-51ms
+    - Std deviation <20ms (ideally <10ms)
+    - Achieved rate 19-21Hz
+    - No lost intervals
+
+    Note on Python/asyncio:
+    - asyncio.sleep() has ~1-2ms precision on most systems
+    - Std dev <20ms is achievable even with Python overhead
+    - Lower jitter requires C++ implementation
     """
     logger.info("TEST: Heartbeat Service Precision")
 
@@ -373,6 +607,9 @@ async def test_heartbeat_service_precision(
 # =============================================================================
 # TELEMETRY CACHE SPEED TESTS
 # =============================================================================
+# These tests validate the TelemetryCache subsystem that provides sub-millisecond
+# telemetry reads for the MCP server and Guardian.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -385,10 +622,50 @@ async def test_telemetry_cache_speed(
     """
     Test telemetry cache read performance.
 
-    Verifies:
-        - Cache reads complete in <1ms
-        - Stale data detection works
-        - Background refresh is active
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Measures the TelemetryCache read performance. The cache provides sub-millisecond
+    reads by maintaining a background-updated copy of telemetry data.
+
+    Why <1ms Matters:
+    - MCP server queries telemetry for every tool invocation
+    - Guardian checks telemetry 10-20 times per second
+    - <1ms ensures tools remain responsive
+    - Without cache, each read would take 20-50ms
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Warm up cache with 0.5s wait (allows background refresh)
+    2. Perform 100 cache reads in a tight loop
+    3. For each read:
+       - Record start time
+       - Call cache.get_data()
+       - Calculate elapsed time in milliseconds
+    4. Calculate statistics:
+       - Average read latency
+       - Maximum read latency
+    5. Log cache metrics (hit count, refresh count)
+    6. Assert average <1ms and max <5ms
+    7. Check cache freshness
+    8. Assert age <500ms and not stale
+    9. Record all metrics to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Average read latency <1ms
+    - Maximum read latency <5ms
+    - Cache is not stale
+    - Cache age <500ms
+    - Hit count > 0
+
+    Cache Design:
+    - Background task refreshes every 100ms
+    - get_data() returns cached copy immediately
+    - No locks needed (atomic reference swap)
+    - Sub-millisecond performance achieved
     """
     logger.info("TEST: Telemetry Cache Speed")
 
@@ -446,6 +723,9 @@ async def test_telemetry_cache_speed(
 # =============================================================================
 # STATE MACHINE TRANSITION TESTS
 # =============================================================================
+# These tests validate that state transitions happen quickly, ensuring the
+# state machine never becomes a bottleneck.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -458,10 +738,53 @@ async def test_state_machine_transitions(
     """
     Test state machine transition performance.
 
-    Verifies:
-        - State transitions complete in <10ms
-        - Precondition checks are fast
-        - History tracking doesn't slow transitions
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Measures the performance of FlightStateMachine transitions and precondition
+    checks. The state machine must be extremely fast to avoid delaying commands.
+
+    Why <10ms Matters:
+    - Every flight command checks state preconditions
+    - Slow transitions add latency to user commands
+    - State machine runs on main thread (must not block)
+
+    Tests:
+    1. Transition timing: measure state changes
+    2. Precondition checks: measure command validation
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Reset state machine for clean test
+    2. Test transition timing:
+       - Define sequence of valid transitions through mission lifecycle
+       - For each transition:
+         a. Set up from_state
+         b. Measure transition() call time
+         c. Record elapsed time
+       d. Log all transition times
+    3. Calculate average and max transition times
+    4. Assert avg <10ms and max <50ms
+    5. Test precondition checks:
+       - Measure check_command_precondition() for common commands
+       - Calculate average check time
+       - Assert avg <1ms
+    6. Record all metrics to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - All transitions complete in <50ms
+    - Average transition time <10ms
+    - Precondition checks <1ms
+    - No invalid transitions attempted
+
+    Transition Sequence Tested:
+    INIT → DISARMED → ARMED → TAKING_OFF → HOVERING
+    → POSITION_CONTROL → HOVERING → LANDING → LANDED → DISARMED
+
+    This covers a full mission lifecycle.
     """
     logger.info("TEST: State Machine Transitions")
 
@@ -551,6 +874,9 @@ async def test_state_machine_transitions(
 # =============================================================================
 # OFFBOARD STREAMING TESTS
 # =============================================================================
+# These tests validate the 20Hz offboard setpoint streaming required for
+# real-time velocity control.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -564,10 +890,59 @@ async def test_offboard_streaming_rate(
     """
     Test 20Hz offboard setpoint streaming.
 
-    Verifies:
-        - 20Hz setpoint stream is maintained
-        - Actual rate >= 18Hz
-        - Timing jitter <10ms std dev
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    Validates that the system can maintain a 20Hz stream of velocity setpoints
+    to the PX4 autopilot in offboard mode. This is the foundation of real-time
+    velocity control used by AI agents.
+
+    Requirements:
+    - Target rate: 20Hz (50ms intervals)
+    - Minimum acceptable: 18Hz (allows 10% jitter tolerance)
+    - Jitter: <10ms std deviation
+
+    Why 20Hz Matters:
+    - Below 10Hz, control becomes jerky and unstable
+    - MAVLink offboard mode requires minimum 2Hz, recommends 10Hz+
+    - 20Hz provides smooth control with safety margin
+    - Higher rates (50Hz) possible but not necessary for most flight
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Arm and takeoff to 5m
+    2. Start offboard mode with initial velocity setpoint
+    3. Stream setpoints for 2 seconds:
+       - Send velocity setpoint
+       - Record timestamp
+       - Maintain 50ms interval using asyncio.sleep()
+    4. Stop offboard mode
+    5. Calculate intervals between timestamps
+    6. Calculate statistics:
+       - Number of setpoints sent
+       - Average interval
+       - Standard deviation (jitter)
+       - Achieved rate
+    7. Log all statistics
+    8. Assert achieved rate >=18Hz
+    9. Assert jitter <10ms
+    10. Land for cleanup
+    11. Record metrics to performance collector
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - Setpoints sent: ~40 (2s × 20Hz)
+    - Average interval: 50ms ±5ms
+    - Std deviation: <10ms
+    - Achieved rate: >=18Hz
+    - No exceptions during streaming
+
+    Implementation Notes:
+    - Uses asyncio for timing (not real-time but sufficient for testing)
+    - Small velocity (0.5 m/s) to prevent excessive drift
+    - Sequential setpoints (all same value) for test consistency
     """
     logger.info("TEST: Offboard Streaming Rate (20Hz)")
 
@@ -645,6 +1020,9 @@ async def test_offboard_streaming_rate(
 # =============================================================================
 # COMPREHENSIVE PERFORMANCE REPORT
 # =============================================================================
+# This test generates a final summary report of all performance metrics
+# collected during the test run.
+# =============================================================================
 
 
 @pytest.mark.e2e
@@ -657,8 +1035,56 @@ async def test_comprehensive_performance_report(
     """
     Generate comprehensive performance report.
 
-    This test runs after all other performance tests to compile
-    a final report of all collected metrics.
+    ================================================================================
+    TEST SCENARIO
+    ================================================================================
+    This test runs after all other performance tests to compile a comprehensive
+    report of all collected metrics. It does not perform new measurements but
+    aggregates and analyzes the results from previous tests.
+
+    Purpose:
+    - Provide a unified view of system performance
+    - Identify which requirements are met and which are at risk
+    - Generate data for performance regression tracking
+    - Create summary suitable for documentation/reports
+
+    ================================================================================
+    TEST FLOW
+    ================================================================================
+    1. Retrieve all collected metrics from PerformanceCollector
+    2. Group metrics by operation name
+    3. Log detailed metrics for each operation:
+       - Operation name
+       - Number of samples
+       - Duration and metadata for each sample
+    4. Calculate summary statistics for key requirements:
+       - Command response times
+       - Connection latency
+       - Telemetry cache speed
+       - Heartbeat precision
+       - State machine transitions
+    5. For each requirement, determine PASS/FAIL status
+    6. Log summary table with all requirements
+    7. Note: Does not assert - this is a report, not a test
+
+    ================================================================================
+    EXPECTED OUTCOMES
+    ================================================================================
+    - All metrics from previous tests are present
+    - Summary shows clear pass/fail for each requirement
+    - Report is logged in readable format
+    - No assertions (reporting only)
+
+    Requirements Checked:
+    - command_response_times: <100ms command latency
+    - connection_state_latency: <100ms connection latency
+    - telemetry_cache_speed: <1ms cache reads
+    - heartbeat_precision: <50ms heartbeat precision
+    - state_machine_transitions: <10ms state transitions
+
+    Usage:
+    This test should run last in the performance test suite to ensure all
+    metrics have been collected by previous tests.
     """
     logger.info("=" * 60)
     logger.info("COMPREHENSIVE PERFORMANCE REPORT")
