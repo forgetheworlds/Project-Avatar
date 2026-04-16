@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Wave 0 Foundation**: Unified `tests/` tree, pytest `--run-sitl` / `sitl` marker, removed legacy `avatar/mav/connection.py`, repaired pre-commit/Bandit paths for `avatar/`, MCP validator uses live tool definitions (26 tools), pinned `SIH_VEHICLE_TARGET = "sihsim_quadx"` for PX4 SIH builds.
+- **Python 3.12**: Aligned pyproject.toml, mypy, and ruff to Python 3.12 target.
+- **CLI entrypoint**: Added `avatar` console script via `avatar/main.py`.
+
+---
+
 ## [0.5.0] - 2026-04-11
 
 ### Summary
