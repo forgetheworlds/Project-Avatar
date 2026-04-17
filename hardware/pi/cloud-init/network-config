@@ -1,0 +1,14 @@
+version: 2
+
+wifis:
+  wlan0:
+    dhcp4: true
+    optional: true
+    access-points:
+      "PLACEHOLDER_SSID":
+        password: "PLACEHOLDER_PASSWORD"
+
+ethernets:
+  eth0:
+    dhcp4: true
+    optional: true

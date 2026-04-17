@@ -1,0 +1,48 @@
+#cloud-config
+hostname: avatar-pi
+manage_etc_hosts: true
+
+users:
+  - name: avatar
+    groups: [adm, dialout, sudo, video, plugdev]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+
+ssh_authorized_keys:
+  - ${AVATAR_SSH_KEY}
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - python3.12
+  - python3-pip
+  - python3-venv
+  - ffmpeg
+  - systemd-timesyncd
+  - git
+  - curl
+  - wget
+  - i2c-tools
+  - raspi-config
+
+runcmd:
+  - systemctl enable systemd-timesyncd
+  - systemctl start systemd-timesyncd
+  - usermod -aG i2c avatar || true
+  - usermod -aG gpio avatar || true
+
+write_files:
+  - path: /etc/avahi/services/avatar.service
+    content: |
+      <?xml version="1.0" standalone='no'?>
+      <service-group>
+        <name replace-wildcards="yes">Avatar Drone %h</name>
+        <service>
+          <type>_avatar._tcp</type>
+          <port>8765</port>
+        </service>
+      </service-group>
+    owner: root:root
+    permissions: '0644'

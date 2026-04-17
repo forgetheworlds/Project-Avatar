@@ -1,0 +1,16 @@
+[Unit]
+Description=Avatar Hardware Watchdog
+Documentation=man:watchdog(8)
+After=multi-user.target
+
+[Service]
+Type=forking
+ExecStart=/sbin/watchdog
+Restart=always
+RestartSec=10
+
+# Watchdog will reset the system if not petted within timeout
+# This provides hardware-level reliability for autonomous operation
+
+[Install]
+WantedBy=multi-user.target
