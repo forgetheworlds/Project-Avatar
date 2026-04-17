@@ -133,9 +133,9 @@ class TestRtspCameraProviderWithoutPyAV:
     @pytest.mark.asyncio
     async def test_connect_raises_sdk_not_available(self):
         """Connect should raise CameraError when PyAV not installed."""
-        from avatar.vision.providers import get_camera_provider
+        # Import directly to test behavior even when not registered
+        from avatar.vision.providers.rtsp import RtspCameraProvider
 
-        RtspCameraProvider = get_camera_provider("rtsp")
         provider = RtspCameraProvider(url="rtsp://camera.local/stream")
 
         with pytest.raises(CameraError) as exc_info:

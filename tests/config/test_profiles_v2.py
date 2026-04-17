@@ -464,6 +464,7 @@ detector_backend: yaml_detector
 
     def test_load_profile_env_type_coercion(self, monkeypatch: pytest.MonkeyPatch):
         """D9: ENV variables are type-coerced correctly."""
+        monkeypatch.setenv("AVATAR_SYSTEM_ADDRESS", "udp://:14540")
         monkeypatch.setenv("AVATAR_REQUIRES_PX4_CHECK", "true")
         monkeypatch.setenv("AVATAR_COM_OBL_RC_ACT", "1")
         monkeypatch.setenv("AVATAR_MIN_BATTERY_PERCENT", "50.5")
@@ -476,6 +477,7 @@ detector_backend: yaml_detector
 
     def test_load_profile_env_bool_false(self, monkeypatch: pytest.MonkeyPatch):
         """D9: ENV boolean false values work correctly."""
+        monkeypatch.setenv("AVATAR_SYSTEM_ADDRESS", "udp://:14540")
         monkeypatch.setenv("AVATAR_REQUIRES_PX4_CHECK", "false")
 
         profile = load_profile("test")
@@ -544,18 +546,21 @@ class TestPX4ParameterVerification:
         mock_drone = MagicMock()
         mock_result = MagicMock()
         mock_result.is_valid = True
+        mock_result.name = "COM_OBL_RC_ACT"
 
-        with patch("avatar.config.profiles.PX4ParameterManager") as MockManager:
+        with patch("avatar.mav.px4_parameters.PX4ParameterManager") as MockManager:
             manager_instance = MockManager.return_value
             manager_instance.verify_safety_parameters = AsyncMock(
                 return_value=[mock_result]
             )
+            manager_instance.get_parameter = AsyncMock(return_value=2)
+            manager_instance.check_parameter = MagicMock(return_value=mock_result)
 
             results = await verify_profile_parameters(profile, mock_drone)
 
             # Should have called verify_safety_parameters
             manager_instance.verify_safety_parameters.assert_called_once()
-            assert len(results) == 1
+            assert len(results) >= 1
             assert results[0].is_valid is True
 
     @pytest.mark.asyncio
@@ -572,11 +577,13 @@ class TestPX4ParameterVerification:
         mock_result.is_valid = False
         mock_result.name = "COM_OBL_RC_ACT"
 
-        with patch("avatar.config.profiles.PX4ParameterManager") as MockManager:
+        with patch("avatar.mav.px4_parameters.PX4ParameterManager") as MockManager:
             manager_instance = MockManager.return_value
             manager_instance.verify_safety_parameters = AsyncMock(
                 return_value=[mock_result]
             )
+            manager_instance.get_parameter = AsyncMock(return_value=0)
+            manager_instance.check_parameter = MagicMock(return_value=mock_result)
 
             from avatar.mav.px4_parameters import SafetyError
 

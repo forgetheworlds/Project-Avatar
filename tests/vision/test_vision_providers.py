@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -21,12 +23,15 @@ async def test_mock_camera_provider_reports_backend_name():
     await provider.disconnect()
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_mock_detector_provider_reports_backend_name():
     provider = MockDetectorProvider(confidence_threshold=0.5)
     await provider.initialize()
 
     frame = Frame(data=np.zeros((240, 320, 3), dtype=np.uint8))
-    detections = await provider.detect(frame)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        detections = await provider.detect(frame)
 
     assert provider.backend_name == "mock_detector"
     assert isinstance(detections, list)

@@ -118,13 +118,14 @@ class IntentParseResult:
 # Intent patterns with regex
 INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
     # Pattern: (type, description, compiled_regex)
+    # Note: Put longer alternatives first in alternations (e.g., "meters" before "m")
     (
         IntentType.ORBIT,
         "orbit subject at altitude",
         re.compile(
-            r"(?:orbit|circle)\s+(?:the\s+)?(.+?)\s+(?:at|from)?\s*(\d+(?:\.\d+)?)\s*"
-            r"(?:m|meters?|ft|feet)?(?:\s+(?:for|duration)\s+(\d+(?:\.\d+)?)\s*"
-            r"(?:s|sec|seconds?|min|minutes?)?)?",
+            r"(?:orbit|circle)\s+(?:the\s+)?(.+?)(?=\s+(?:at|from|for|$))"
+            r"(?:\s+(?:at|from)\s*(\d+(?:\.\d+)?)\s*(?:meters?|m|feet|ft)?)?"
+            r"(?:\s+for\s+(\d+(?:\.\d+)?)\s*(seconds?|sec|s|minutes?|min))?",
             re.IGNORECASE,
         ),
     ),
@@ -132,9 +133,9 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.FOLLOW,
         "follow subject for duration",
         re.compile(
-            r"(?:follow|track)\s+(?:the\s+)?(.+?)(?:\s+for\s+(\d+(?:\.\d+)?)\s*"
-            r"(?:s|sec|seconds?|min|minutes?))?(?:\s+at\s+(\d+(?:\.\d+)?)\s*"
-            r"(?:m|meters?))?",
+            r"(?:follow|track)\s+(?:the\s+)?(.+?)(?=\s+(?:for|at|$))"
+            r"(?:\s+for\s+(\d+(?:\.\d+)?)\s*(seconds?|sec|s|minutes?|min))?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?",
             re.IGNORECASE,
         ),
     ),
@@ -142,8 +143,10 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.SCAN,
         "scan area at altitude",
         re.compile(
-            r"(?:scan|sweep)\s+(?:the\s+)?(.+?)(?:\s+area)?(?:\s+at\s+(\d+(?:\.\d+)?)\s*"
-            r"(?:m|meters?))?(?:\s+(?:using|with)\s+(\w+)\s+pattern)?",
+            r"(?:scan|sweep)\s+(?:the\s+)?(.+?)(?=\s+(?:at|with|using|area|$))"
+            r"(?:\s+area)?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?"
+            r"(?:\s+(?:using|with)\s+(\w+)\s+pattern)?",
             re.IGNORECASE,
         ),
     ),
@@ -151,9 +154,9 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.INSPECT,
         "inspect object from distance",
         re.compile(
-            r"(?:inspect|examine|check)\s+(?:the\s+)?(.+?)(?:\s+(?:from|at)\s+"
-            r"(\d+(?:\.\d+)?)\s*(?:m|meters?)?)?(?:\s+altitude\s+(\d+(?:\.\d+)?)\s*"
-            r"(?:m|meters?)?)?",
+            r"(?:inspect|examine|check)\s+(?:the\s+)?(.+?)(?=\s+(?:from|at|altitude|$))"
+            r"(?:\s+(?:from|at)\s+(\d+(?:\.\d+)?)\s*(?:meters?|m)?)?"
+            r"(?:\s+altitude\s+(\d+(?:\.\d+)?)\s*(?:meters?|m)?)?",
             re.IGNORECASE,
         ),
     ),
@@ -161,8 +164,9 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.PHOTOGRAPH,
         "photograph subject from angle",
         re.compile(
-            r"(?:photograph|photo|capture|shoot)\s+(?:the\s+)?(.+?)(?:\s+from\s+"
-            r"(\w+)\s+angle)?(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:m|meters?))?",
+            r"(?:photograph|photo|capture|shoot)\s+(?:the\s+)?(.+?)(?=\s+(?:from|at|$))"
+            r"(?:\s+from\s+(\w+)\s+angle)?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?",
             re.IGNORECASE,
         ),
     ),
@@ -170,9 +174,9 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.FLY_TO,
         "fly to location at altitude",
         re.compile(
-            r"(?:fly|go|travel|navigate)\s+(?:to\s+)?(?:the\s+)?(.+?)(?:\s+at\s+"
-            r"(\d+(?:\.\d+)?)\s*(?:m|meters?))?(?:\s+(?:speed|velocity)\s+"
-            r"(\d+(?:\.\d+)?)\s*(?:m/s|mps))?",
+            r"(?:fly|go|travel|navigate)\s+(?:to\s+)?(?:the\s+)?(.+?)(?=\s+(?:at|speed|velocity|$))"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?"
+            r"(?:\s+(?:speed|velocity)\s+(\d+(?:\.\d+)?))\s*(?:m/s|mps)?",
             re.IGNORECASE,
         ),
     ),
@@ -180,8 +184,10 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.SURVEY,
         "survey area with pattern",
         re.compile(
-            r"(?:survey|map)\s+(?:the\s+)?(.+?)(?:\s+area)?(?:\s+(?:using|with)\s+"
-            r"(\w+)\s+pattern)?(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:m|meters?))?",
+            r"(?:survey|map)\s+(?:the\s+)?(.+?)(?=\s+(?:with|using|at|area|$))"
+            r"(?:\s+area)?"
+            r"(?:\s+(?:using|with)\s+(\w+)\s+pattern)?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?",
             re.IGNORECASE,
         ),
     ),
@@ -189,9 +195,9 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.HOVER,
         "hover at location for duration",
         re.compile(
-            r"(?:hover|hold)\s+(?:at|over|above)?\s*(?:the\s+)?(.+?)(?:\s+for\s+"
-            r"(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?|min|minutes?))?(?:\s+at\s+"
-            r"(\d+(?:\.\d+)?)\s*(?:m|meters?))?",
+            r"(?:hover|hold)\s+(?:at|over|above)?\s*(?:the\s+)?(.+?)(?=\s+(?:for|at|$))"
+            r"(?:\s+for\s+(\d+(?:\.\d+)?)\s*(seconds?|sec|s|minutes?|min))?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?",
             re.IGNORECASE,
         ),
     ),
@@ -199,7 +205,7 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.LAND,
         "land at location",
         re.compile(
-            r"(?:land|touchdown)\s+(?:at|on)?\s*(?:the\s+)?(.+?)",
+            r"(?:land|touchdown)\s+(?:at|on)?\s*(?:the\s+)?(.+?)\s*$",
             re.IGNORECASE,
         ),
     ),
@@ -215,9 +221,10 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.PATROL,
         "patrol path at altitude",
         re.compile(
-            r"(?:patrol|guard|watch)\s+(?:the\s+)?(.+?)(?:\s+area)?(?:\s+at\s+"
-            r"(\d+(?:\.\d+)?)\s*(?:m|meters?))?(?:\s+for\s+(\d+(?:\.\d+)?)\s*"
-            r"(?:min|minutes?))?",
+            r"(?:patrol|guard|watch)\s+(?:the\s+)?(.+?)(?=\s+(?:at|for|area|$))"
+            r"(?:\s+area)?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?"
+            r"(?:\s+for\s+(\d+(?:\.\d+)?)\s*(minutes?|min))?",
             re.IGNORECASE,
         ),
     ),
@@ -225,8 +232,10 @@ INTENT_PATTERNS: List[Tuple[IntentType, str, re.Pattern]] = [
         IntentType.SEARCH,
         "search for object in area",
         re.compile(
-            r"(?:search|look\s+(?:for|for\s+the))\s+(?:for\s+)?(?:the\s+)?(.+?)(?:\s+in\s+"
-            r"(?:the\s+)?(.+?))?(?:\s+area)?(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:m|meters?))?",
+            r"(?:search|look\s+for)\s+(?:for\s+)?(?:the\s+)?(.+?)(?=\s+(?:in|at|$))"
+            r"(?:\s+in\s+(?:the\s+)?(.+?))?"
+            r"(?:\s+area)?"
+            r"(?:\s+at\s+(\d+(?:\.\d+)?)\s*(?:meters?|m))?",
             re.IGNORECASE,
         ),
     ),
@@ -267,21 +276,25 @@ def parse_intent(text: str) -> MissionIntent:
             )
 
             # Extract common parameters based on pattern
+            # Groups vary by pattern - see INTENT_PATTERNS for group indices
             if intent_type == IntentType.ORBIT:
+                # Groups: 0=subject, 1=altitude, 2=duration_val, 3=duration_unit
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.altitude_m = float(groups[1])
-                if groups[2]:
-                    intent.duration_s = _parse_duration(groups[2], groups[2] + "s" if groups[2] else None)
+                if groups[2] and groups[3]:
+                    intent.duration_s = _parse_duration(groups[2], groups[3])
 
             elif intent_type == IntentType.FOLLOW:
+                # Groups: 0=subject, 1=duration_val, 2=duration_unit, 3=altitude
                 intent.subject = groups[0]
-                if groups[1]:
-                    intent.duration_s = _parse_duration(groups[1])
-                if groups[2]:
-                    intent.altitude_m = float(groups[2])
+                if groups[1] and groups[2]:
+                    intent.duration_s = _parse_duration(groups[1], groups[2])
+                if groups[3]:
+                    intent.altitude_m = float(groups[3])
 
             elif intent_type == IntentType.SCAN:
+                # Groups: 0=subject, 1=altitude, 2=pattern
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.altitude_m = float(groups[1])
@@ -289,6 +302,7 @@ def parse_intent(text: str) -> MissionIntent:
                     intent.pattern = groups[2].lower()
 
             elif intent_type == IntentType.INSPECT:
+                # Groups: 0=subject, 1=distance, 2=altitude
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.distance_m = float(groups[1])
@@ -296,6 +310,7 @@ def parse_intent(text: str) -> MissionIntent:
                     intent.altitude_m = float(groups[2])
 
             elif intent_type == IntentType.PHOTOGRAPH:
+                # Groups: 0=subject, 1=angle, 2=altitude
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.parameters["angle"] = groups[1].lower()
@@ -303,6 +318,7 @@ def parse_intent(text: str) -> MissionIntent:
                     intent.altitude_m = float(groups[2])
 
             elif intent_type == IntentType.FLY_TO:
+                # Groups: 0=subject, 1=altitude, 2=speed
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.altitude_m = float(groups[1])
@@ -310,6 +326,7 @@ def parse_intent(text: str) -> MissionIntent:
                     intent.speed_m_s = float(groups[2])
 
             elif intent_type == IntentType.SURVEY:
+                # Groups: 0=subject, 1=pattern, 2=altitude
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.pattern = groups[1].lower()
@@ -317,26 +334,30 @@ def parse_intent(text: str) -> MissionIntent:
                     intent.altitude_m = float(groups[2])
 
             elif intent_type == IntentType.HOVER:
+                # Groups: 0=subject, 1=duration_val, 2=duration_unit, 3=altitude
                 intent.subject = groups[0]
-                if groups[1]:
-                    intent.duration_s = _parse_duration(groups[1])
-                if groups[2]:
-                    intent.altitude_m = float(groups[2])
+                if groups[1] and groups[2]:
+                    intent.duration_s = _parse_duration(groups[1], groups[2])
+                if groups[3]:
+                    intent.altitude_m = float(groups[3])
 
             elif intent_type == IntentType.LAND:
+                # Groups: 0=subject
                 intent.subject = groups[0]
 
             elif intent_type == IntentType.RTL:
                 pass  # No additional parameters
 
             elif intent_type == IntentType.PATROL:
+                # Groups: 0=subject, 1=altitude, 2=duration_val, 3=duration_unit
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.altitude_m = float(groups[1])
-                if groups[2]:
-                    intent.duration_s = float(groups[2]) * 60  # Minutes to seconds
+                if groups[2] and groups[3]:
+                    intent.duration_s = _parse_duration(groups[2], groups[3])
 
             elif intent_type == IntentType.SEARCH:
+                # Groups: 0=subject, 1=area, 2=altitude
                 intent.subject = groups[0]
                 if groups[1]:
                     intent.parameters["area"] = groups[1]

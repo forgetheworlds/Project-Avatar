@@ -265,4 +265,5 @@ class TestOakProviderOnDeviceInference:
         # Full implementation requires DepthAI pipeline setup
         info = provider.get_info()
         assert "model" in info["config"]
-        assert "confidence_threshold" in provider.__dict__
+        # Confidence threshold is stored as private attribute
+        assert hasattr(provider, "_confidence_threshold")

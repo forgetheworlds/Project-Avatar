@@ -294,14 +294,29 @@ if GazeboCameraProvider:
     CAMERA_PROVIDERS["gazebo"] = GazeboCameraProvider
     CAMERA_PROVIDERS["gazebo_camera"] = GazeboCameraProvider  # Alias
 
+# RTSP: Check if PyAV is actually available (not just importable)
 if RtspCameraProvider:
-    CAMERA_PROVIDERS["rtsp"] = RtspCameraProvider
+    try:
+        import av
+        CAMERA_PROVIDERS["rtsp"] = RtspCameraProvider
+    except ImportError:
+        pass
 
+# RealSense: Check if pyrealsense2 is actually available
 if RealSenseCameraProvider:
-    CAMERA_PROVIDERS["realsense"] = RealSenseCameraProvider
+    try:
+        import pyrealsense2
+        CAMERA_PROVIDERS["realsense"] = RealSenseCameraProvider
+    except ImportError:
+        pass
 
+# OAK: Check if depthai is actually available
 if OakCameraProvider:
-    CAMERA_PROVIDERS["oak"] = OakCameraProvider
+    try:
+        import depthai
+        CAMERA_PROVIDERS["oak"] = OakCameraProvider
+    except ImportError:
+        pass
 
 
 # Detector provider registry

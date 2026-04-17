@@ -12,6 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -422,7 +423,8 @@ class TestDrivers:
 class TestInjectionScheduler:
     """Tests for InjectionScheduler."""
 
-    def test_schedule_injection(self) -> None:
+    @pytest.mark.asyncio
+    async def test_schedule_injection(self) -> None:
         """Test scheduling injections."""
         scheduler = InjectionScheduler()
 
@@ -490,7 +492,7 @@ class TestAssertionEngine:
             message="Should be in safe mode",
         )
 
-        result = await engine.check_assertion(assertion, mock_mcp_client, 0.0)
+        result = await engine.check_assertion(assertion, mock_mcp_client, time.time())
 
         assert result.status == AssertionStatus.PASS
 
