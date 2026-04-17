@@ -307,6 +307,17 @@ from avatar.mcp_server.tools.tracking_tools import (
     track_target, spiral_search
 )
 
+# Mission Intelligence: Area analysis, planning, and safety checks (D8)
+from avatar.mcp_server.tools.mission_intel_tools import (
+    analyze_area as mission_analyze_area,
+    lookup_place,
+    get_elevation,
+    get_agl,
+    plan_scenic_sweep,
+    plan_mission_from_intent as mission_plan_mission_from_intent,
+    propose_orbit_for_subject,
+)
+
 # Cinematic: Pre-programmed professional shots
 from avatar.mcp_server.tools.cinematic_shots import (
     execute_cinematic_shot, list_cinematic_templates, preview_cinematic_shot
@@ -1666,6 +1677,183 @@ def avatar_mcp_tool_definitions() -> List[Any]:
             outputSchema=STANDARD_OUTPUT_SCHEMA,
             annotations=READ_ONLY_ANNOTATIONS,
         ),
+        # ==============================================================================
+        # D8 MISSION INTELLIGENCE TOOLS - Area analysis, planning, safety
+        # ==============================================================================
+        types.Tool(
+            name="analyze_area",
+            description=(
+                "Analyze an area for drone flight planning. "
+                "Returns terrain, obstacles, land use, and airspace information. "
+                "Works offline when OSM/SRTM data is cached."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "center_lat": {
+                        "type": "number",
+                        "description": "Center latitude in degrees",
+                    },
+                    "center_lon": {
+                        "type": "number",
+                        "description": "Center longitude in degrees",
+                    },
+                    "radius_m": {
+                        "type": "number",
+                        "description": "Analysis radius in meters",
+                        "default": 500,
+                    },
+                    "include_places": {
+                        "type": "boolean",
+                        "description": "Include points of interest",
+                        "default": True,
+                    },
+                },
+                "required": ["center_lat", "center_lon"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="lookup_place",
+            description=(
+                "Look up a place by name or address. "
+                "Returns location and metadata. "
+                "Uses OSM Nominatim (and Google Maps if API key set)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Place name or address",
+                    },
+                    "lat": {
+                        "type": "number",
+                        "description": "Optional latitude to bias search",
+                    },
+                    "lon": {
+                        "type": "number",
+                        "description": "Optional longitude to bias search",
+                    },
+                },
+                "required": ["query"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="get_elevation",
+            description=(
+                "Get ground elevation for coordinates. "
+                "Uses SRTM tiles (offline when cached) or Open-Elevation API."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number", "description": "Latitude in degrees"},
+                    "lon": {"type": "number", "description": "Longitude in degrees"},
+                },
+                "required": ["lat", "lon"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="get_agl",
+            description=(
+                "Calculate Above Ground Level (AGL) altitude. "
+                "Given a planned altitude (AMSL) and coordinates, "
+                "returns the height above the ground."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number", "description": "Latitude in degrees"},
+                    "lon": {"type": "number", "description": "Longitude in degrees"},
+                    "altitude_amsl_m": {
+                        "type": "number",
+                        "description": "Altitude above mean sea level in meters",
+                    },
+                },
+                "required": ["lat", "lon", "altitude_amsl_m"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="plan_scenic_sweep",
+            description=(
+                "Plan a scenic sweep mission for area coverage. "
+                "Generates optimized flight path for photography or inspection. "
+                "Patterns: circle, spiral, grid, lawn_mower."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "center_lat": {"type": "number", "description": "Center latitude"},
+                    "center_lon": {"type": "number", "description": "Center longitude"},
+                    "radius_m": {"type": "number", "description": "Sweep radius (m)", "default": 200},
+                    "altitude_agl_m": {"type": "number", "description": "Altitude AGL (m)", "default": 30},
+                    "pattern": {
+                        "type": "string",
+                        "enum": ["circle", "spiral", "grid", "lawn_mower"],
+                        "default": "spiral",
+                    },
+                    "speed_m_s": {"type": "number", "description": "Speed (m/s)", "default": 5},
+                },
+                "required": ["center_lat", "center_lon", "radius_m"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="plan_mission_from_intent",
+            description=(
+                "Plan a mission from natural language intent. "
+                "Supports: orbit, follow, scan, inspect, photograph, fly-to, "
+                "survey, hover, land, RTL, patrol, search. "
+                "Example: 'orbit the tower at 50m for 2 minutes'"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "intent": {
+                        "type": "string",
+                        "description": "Natural language mission description",
+                    },
+                    "home_lat": {"type": "number", "description": "Home latitude"},
+                    "home_lon": {"type": "number", "description": "Home longitude"},
+                    "geocode": {"type": "boolean", "default": True},
+                },
+                "required": ["intent"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="propose_orbit_for_subject",
+            description=(
+                "Propose an orbit plan for a subject. "
+                "Looks up the subject location and generates orbit waypoints."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "subject": {
+                        "type": "string",
+                        "description": "Subject to orbit (place name)",
+                    },
+                    "radius_m": {"type": "number", "description": "Orbit radius (m)", "default": 50},
+                    "altitude_m": {"type": "number", "description": "Altitude AGL (m)", "default": 30},
+                    "duration_s": {"type": "number", "description": "Duration (s)", "default": 60},
+                    "speed_m_s": {"type": "number", "description": "Speed (m/s)", "default": 3},
+                },
+                "required": ["subject"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
     ]
 
 
@@ -1728,6 +1916,14 @@ LISTED_TOOL_NAMES: List[str] = [
     "log_mission_segment",
     "evaluate_last_command",
     "expose_advanced_tracker",
+    # D8 Mission Intelligence
+    "analyze_area",
+    "lookup_place",
+    "get_elevation",
+    "get_agl",
+    "plan_scenic_sweep",
+    "plan_mission_from_intent",
+    "propose_orbit_for_subject",
 ]
 
 
@@ -2389,6 +2585,75 @@ class AvatarMCPServer:
                 down_m=arguments.get("down_m", -10.0),
                 yaw_deg=arguments.get("yaw_deg"),
                 speed_m_s=arguments.get("speed_m_s", 5.0),
+            )
+
+        # ==============================================================================
+        # D8 MISSION INTELLIGENCE TOOL HANDLERS
+        # ==============================================================================
+        # These tools provide area analysis, planning, and safety checks.
+        # They work offline when OSM/SRTM data is cached.
+
+        elif name == "analyze_area":
+            # Analyze area for drone flight planning
+            return await mission_analyze_area(
+                center_lat=arguments.get("center_lat", 0.0),
+                center_lon=arguments.get("center_lon", 0.0),
+                radius_m=arguments.get("radius_m", 500.0),
+                include_places=arguments.get("include_places", True),
+            )
+
+        elif name == "lookup_place":
+            # Look up a place by name or address
+            return await lookup_place(
+                query=arguments.get("query", ""),
+                lat=arguments.get("lat"),
+                lon=arguments.get("lon"),
+                radius_m=arguments.get("radius_m", 1000.0),
+            )
+
+        elif name == "get_elevation":
+            # Get ground elevation for coordinates
+            return await get_elevation(
+                lat=arguments.get("lat", 0.0),
+                lon=arguments.get("lon", 0.0),
+            )
+
+        elif name == "get_agl":
+            # Calculate Above Ground Level altitude
+            return await get_agl(
+                lat=arguments.get("lat", 0.0),
+                lon=arguments.get("lon", 0.0),
+                altitude_amsl_m=arguments.get("altitude_amsl_m", 0.0),
+            )
+
+        elif name == "plan_scenic_sweep":
+            # Plan a scenic sweep mission
+            return await plan_scenic_sweep(
+                center_lat=arguments.get("center_lat", 0.0),
+                center_lon=arguments.get("center_lon", 0.0),
+                radius_m=arguments.get("radius_m", 200.0),
+                altitude_agl_m=arguments.get("altitude_agl_m", 30.0),
+                pattern=arguments.get("pattern", "spiral"),
+                speed_m_s=arguments.get("speed_m_s", 5.0),
+            )
+
+        elif name == "plan_mission_from_intent":
+            # Plan mission from natural language intent
+            return await mission_plan_mission_from_intent(
+                intent=arguments.get("intent", ""),
+                home_lat=arguments.get("home_lat"),
+                home_lon=arguments.get("home_lon"),
+                geocode=arguments.get("geocode", True),
+            )
+
+        elif name == "propose_orbit_for_subject":
+            # Propose an orbit plan for a subject
+            return await propose_orbit_for_subject(
+                subject=arguments.get("subject", ""),
+                radius_m=arguments.get("radius_m", 50.0),
+                altitude_m=arguments.get("altitude_m", 30.0),
+                duration_s=arguments.get("duration_s", 60.0),
+                speed_m_s=arguments.get("speed_m_s", 3.0),
             )
 
         else:

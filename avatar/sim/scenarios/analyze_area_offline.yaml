@@ -1,0 +1,80 @@
+# Area Analysis Test: Offline Vision Handling
+#
+# Tests that the system handles vision system failures gracefully,
+# continuing mission or executing fallback behavior.
+#
+# SCENARIO:
+# 1. Drone takes off and starts area analysis pattern
+# 2. Vision system experiences dropout (camera failure)
+# 3. System should detect vision loss and either:
+#    a. Continue with degraded functionality
+#    b. Hold position and alert operator
+#    c. Execute failsafe RTL
+#
+# PASS CRITERIA:
+# - Vision dropout is detected
+# - Drone enters safe state (HOLD, RTL, or continues with fallback)
+# - No crash or uncontrolled behavior
+
+id: analyze_area_offline
+kind: runner_follow
+description: |
+  Tests vision system failure handling. When camera or vision drops out,
+  the system should detect this and execute appropriate fallback behavior.
+
+backends:
+  - mcp_stdio
+  - mavsdk
+  - vision_state
+
+sim:
+  tier: gazebo
+
+timeout_s: 200
+
+stages:
+  - id: preflight
+    tool: run_preflight
+    args: {}
+    timeout_s: 30
+    on_failure: abort
+
+  - id: takeoff
+    tool: arm_and_takeoff
+    args:
+      altitude: 20.0
+      altitude_frame: relative
+    timeout_s: 30
+    on_failure: abort
+
+  - id: start_analysis
+    tool: spiral_search
+    args:
+      center_lat: 37.7749
+      center_lon: -122.4194
+      start_radius: 5.0
+      end_radius: 50.0
+      altitude: 20.0
+      speed: 3.0
+    timeout_s: 90
+    on_failure: continue
+
+injections:
+  - at:
+      stage: start_analysis
+      t_offset_s: 20
+    driver: vision_dropout
+    params:
+      duration_s: 15
+      dropout_type: camera_off
+
+assertions:
+  - within_s: 5
+    expect:
+      vision_status: [dropout, offline, unavailable]
+    message: "Vision status should indicate dropout"
+
+  - within_s: 20
+    expect:
+      flight_mode: [HOLD, AUTO_RTL, AUTO_LOITER, LOITER]
+    message: "Should enter safe flight mode when vision is lost"

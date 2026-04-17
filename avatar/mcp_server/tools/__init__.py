@@ -379,6 +379,31 @@ from avatar.mcp_server.tools.primitives_preflight import (
 )
 
 # ==============================================================================
+# CATEGORY 11: MISSION INTELLIGENCE TOOLS - D8 Wave 2b
+# ==============================================================================
+# Mission intelligence provides area analysis, planning, and safety checks.
+# Works offline-first using OSM/SRTM data when cached.
+# ==============================================================================
+
+from avatar.mcp_server.tools.mission_intel_tools import (
+    analyze_area,              # Analyze area for drone flight planning
+    lookup_place,              # Look up a place by name or address
+    get_elevation,             # Get ground elevation for coordinates
+    get_agl,                   # Calculate Above Ground Level altitude
+    plan_scenic_sweep,         # Plan a scenic sweep mission
+    plan_mission_from_intent,  # Plan mission from natural language intent
+    propose_orbit_for_subject, # Propose an orbit plan for a subject
+    # Tool definitions
+    ANALYZE_AREA_TOOL,
+    LOOKUP_PLACE_TOOL,
+    GET_ELEVATION_TOOL,
+    GET_AGL_TOOL,
+    PLAN_SCENIC_SWEEP_TOOL,
+    PLAN_MISSION_FROM_INTENT_TOOL,
+    PROPOSE_ORBIT_FOR_SUBJECT_TOOL,
+)
+
+# ==============================================================================
 # PUBLIC API DEFINITION (__all__)
 # ==============================================================================
 # __all__ controls what gets imported with 'from module import *'
@@ -508,4 +533,17 @@ __all__ = [
     "run_preflight_tool_schema", # (F) JSON schema for MCP registration
     "run_preflight_output_schema", # (F) JSON schema for MCP registration
     "run_preflight_annotations", # (F) MCP tool annotations
+
+    # -----------------------------------------------------------------------------
+    # MISSION INTELLIGENCE TOOLS (D8)
+    # Area analysis, planning, and safety checks
+    # Offline-first using OSM/SRTM data
+    # -----------------------------------------------------------------------------
+    "analyze_area",              # (F) Analyze area for drone flight planning
+    "lookup_place",              # (F) Look up a place by name or address
+    "get_elevation",             # (F) Get ground elevation for coordinates
+    "get_agl",                   # (F) Calculate Above Ground Level altitude
+    "plan_scenic_sweep",         # (F) Plan a scenic sweep mission
+    "plan_mission_from_intent",  # (F) Plan mission from natural language intent
+    "propose_orbit_for_subject", # (F) Propose an orbit plan for a subject
 ]

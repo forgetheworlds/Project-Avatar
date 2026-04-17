@@ -1,25 +1,32 @@
 import numpy as np
+import pytest
+
 from avatar.vision.providers import (
     MockCameraProvider,
     MockDetectorProvider,
     VisionBackendConfig,
 )
+from avatar.vision.providers.base import Frame
 
 
-def test_mock_camera_provider_reports_backend_name():
+async def test_mock_camera_provider_reports_backend_name():
     provider = MockCameraProvider(width=320, height=240)
 
-    frame = provider.capture_frame()
+    await provider.connect()
+    frame = await provider.capture_frame()
 
     assert provider.backend_name == "mock_camera"
-    assert frame.shape == (240, 320, 3)
+    assert frame.data.shape == (240, 320, 3)
+
+    await provider.disconnect()
 
 
-def test_mock_detector_provider_reports_backend_name():
+async def test_mock_detector_provider_reports_backend_name():
     provider = MockDetectorProvider(confidence_threshold=0.5)
-    frame = np.zeros((240, 320, 3), dtype=np.uint8)
+    await provider.initialize()
 
-    detections = provider.detect(frame)
+    frame = Frame(data=np.zeros((240, 320, 3), dtype=np.uint8))
+    detections = await provider.detect(frame)
 
     assert provider.backend_name == "mock_detector"
     assert isinstance(detections, list)

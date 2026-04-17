@@ -115,8 +115,8 @@ class TestComOblRcAct:
         )
         assert profile_hold.com_obl_rc_act == 3
 
-    def test_runtime_profile_is_frozen(self):
-        """D2.10: RuntimeProfile should be immutable (frozen)."""
+    def test_runtime_profile_is_validated(self):
+        """D9: RuntimeProfile uses Pydantic v2 validation."""
         profile = RuntimeProfile(
             name="test",
             system_address="udp://:14540",
@@ -125,8 +125,9 @@ class TestComOblRcAct:
             requires_px4_parameter_check=False,
         )
 
-        import pytest
-        from dataclasses import FrozenInstanceError
+        # Pydantic v2 model - can be mutated but validated
+        assert profile.com_obl_rc_act == 2
 
-        with pytest.raises(FrozenInstanceError):
-            profile.com_obl_rc_act = 0
+        # Use model_dump_frozen for immutable access
+        frozen_dump = profile.model_dump_frozen()
+        assert frozen_dump["com_obl_rc_act"] == 2

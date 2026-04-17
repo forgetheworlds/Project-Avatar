@@ -1,0 +1,76 @@
+# Orbit Test: Offboard Command Freeze
+#
+# Tests that the system handles offboard command stream interruption
+# gracefully, entering a safe flight mode.
+#
+# SCENARIO:
+# 1. Drone takes off and enters offboard mode
+# 2. Starts orbital flight pattern
+# 3. Offboard command stream is frozen (stops sending setpoints)
+# 4. System should detect timeout and enter position hold or RTL
+#
+# PASS CRITERIA:
+# - Drone detects offboard timeout
+# - Enters HOLD or RTL mode within timeout window
+# - No uncontrolled flight or crash
+
+id: orbit_offboard_freeze
+kind: nature_cinematic
+description: |
+  Tests offboard mode failsafe behavior. When offboard setpoint stream
+  stops, drone should automatically switch to safe flight mode.
+
+backends:
+  - mcp_stdio
+  - mavsdk
+
+sim:
+  tier: gazebo
+
+timeout_s: 180
+
+stages:
+  - id: preflight
+    tool: run_preflight
+    args: {}
+    timeout_s: 30
+    on_failure: abort
+
+  - id: takeoff
+    tool: arm_and_takeoff
+    args:
+      altitude: 15.0
+      altitude_frame: relative
+    timeout_s: 30
+    on_failure: abort
+
+  - id: start_orbit
+    tool: orbit_target
+    args:
+      latitude: 37.7750
+      longitude: -122.4195
+      altitude: 15.0
+      radius: 10.0
+      speed: 2.0
+    timeout_s: 60
+    on_failure: continue
+
+injections:
+  - at:
+      stage: start_orbit
+      t_offset_s: 15
+    driver: offboard_freeze
+    params:
+      duration_s: 5
+      freeze_type: timeout
+
+assertions:
+  - within_s: 8
+    expect:
+      flight_mode: [HOLD, AUTO_RTL, LOITER]
+    message: "Should enter safe mode when offboard commands stop"
+
+  - within_s: 3
+    expect:
+      offboard_status: [frozen, timeout, inactive]
+    message: "Offboard status should indicate frozen/timeout"
