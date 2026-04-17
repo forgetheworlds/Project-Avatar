@@ -1,12 +1,42 @@
-# Project Avatar - LLM-Driven Autonomous Drone
+# Project Avatar
 
-**Architecture 2.0** - Cloud LLM (Kimi K2.5) + Agent-Agnostic MCP + Full Simulation Pre-Validation
+[![PR Fast CI](https://github.com/muadhsambul/Project-Avatar/actions/workflows/pr-fast.yml/badge.svg)](https://github.com/muadhsambul/Project-Avatar/actions/workflows/pr-fast.yml)
+[![Nightly Rich](https://github.com/muadhsambul/Project-Avatar/actions/workflows/nightly-rich.yml/badge.svg)](https://github.com/muadhsambul/Project-Avatar/actions/workflows/nightly-rich.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 
-An autonomous drone system controlled by natural language via **any AI agent** (Claude Code, OpenCode, etc.), using **cloud multimodal LLM** (Kimi K2.5 via Fireworks AI) for mission planning and **PX4 SITL simulation** for pre-hardware validation.
+**Status:** First-flight-ready v0.5.0 — Wave 4 gate: `pytest tests/hitl -m preflight --run-hitl`
+
+An LLM-driven autonomous drone controlled by natural language via any MCP-compatible AI agent. Built with cloud Kimi K2.5 for mission planning, PX4 autopilot for flight control, and Docker SIH simulation for pre-hardware validation.
 
 ---
 
-## 🎯 What's New in Architecture 2.0
+## Quickstart — Docker SIH
+
+Start simulation in three commands:
+
+```bash
+./scripts/sim.sh sih                 # Start SIH simulation
+./scripts/sim.sh scenario smoke_failsafe_rtl  # Run scenario
+./scripts/sim.sh down                # Stop simulation
+```
+
+## Hardware bring-up
+
+- **PX4 setup:** `hardware/px4/README.md` + `./hardware/px4/flash-px4.sh --airframe mark4_7in`
+- **Pi setup:** `hardware/pi/README.md` + `./hardware/pi/flash.sh`
+- **One-shot bring-up:** `./scripts/trivial-flash.sh --airframe mark4_7in`
+
+## Operator docs
+
+- [Preflight checklist](docs/runbooks/preflight.md)
+- [First flight procedure](docs/runbooks/first-flight.md)
+- [Troubleshooting guide](docs/runbooks/troubleshooting.md)
+- [Calibration cadence](docs/runbooks/calibration.md)
+- [Field kit checklist](docs/runbooks/field-kit.md)
+
+---
+
+## Architecture 2.0
 
 | Feature | v1.0 (Old) | v2.0 (Current) |
 |---------|------------|----------------|

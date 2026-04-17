@@ -11,17 +11,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Wave 0 Foundation**: Unified `tests/` tree, pytest `--run-sitl` / `sitl` marker, removed legacy `avatar/mav/connection.py`, repaired pre-commit/Bandit paths for `avatar/`, MCP validator uses live tool definitions (26 tools), pinned `SIH_VEHICLE_TARGET = "sihsim_quadx"` for PX4 SIH builds.
-- **Python 3.12**: Aligned pyproject.toml, mypy, and ruff to Python 3.12 target.
-- **CLI entrypoint**: Added `avatar` console script via `avatar/main.py`.
+- Preparing 0.5.0 first-flight-ready stamp after Wave 4 gate.
 
 ---
 
-## [0.5.0] - 2026-04-11
+## [0.5.0] - first-flight-ready - 2026-04-17
 
 ### Summary
 
-Phase 0.5: Complete software stack validation in PX4 SITL + Gazebo simulation before hardware purchase. This release establishes the foundation for agent-agnostic drone control via MCP protocol with cloud LLM integration.
+Roll-up of Waves 0–4: unified tests/tooling, safety+MCP spines, Docker SIH/Gazebo sim, mission intel + scenario runner, hardware provisioning scripts, HITL pytest harness, operator runbooks, trivial-flash reference path.
+
+This release marks **first-flight-ready**: the complete software stack is validated for tethered first flight with real hardware.
+
+### Added
+
+#### Wave 0 — Foundation
+- Unified `tests/` tree with pytest `--run-sitl` / `sitl` marker
+- Removed legacy `avatar/mav/connection.py`
+- Repaired pre-commit/Bandit paths for `avatar/`
+- MCP validator uses live tool definitions (26 tools)
+- Pinned `SIH_VEHICLE_TARGET = "sihsim_quadx"` for PX4 SIH builds
+- Python 3.12 alignment (pyproject.toml, mypy, ruff)
+- CLI entrypoint: `avatar` console script via `avatar/main.py`
+
+#### Wave 1 — Safety Spine
+- `avatar/mav/guardian.py` — GuardianProcess safety validation layer
+- `avatar/mav/guardian_async.py` — Async safety operations
+- `avatar/mav/escalation_matrix.py` — Failure escalation logic
+- `avatar/mav/resource_monitor.py` — System resource monitoring
+- `avatar/mav/heartbeat_service.py` — Watchdog/heartbeat service
+- `avatar/mav/telemetry_cache.py` — Telemetry buffering
+- `avatar/mav/px4_parameters.py` — PX4 parameter management
+
+#### Wave 2a — MCP Expansion
+- 26 MCP tools across 9 tool modules
+- `avatar/mcp_server/schemas.py` — Input validation schemas
+- `avatar/mcp_server/confirmation.py` — Progressive confirmation workflow
+- `avatar/mcp_server/confirmation_policy.py` — Confirmation policy engine
+- `avatar/mcp_server/errors.py` — Structured error codes (18 ErrorCode members)
+
+#### Wave 2b — Intel Providers + Scenarios
+- `avatar/sim/runner.py` — Scenario runner with injection drivers
+- `avatar/sim/drivers/` — BatteryDrainDriver, RcLossDriver, OffboardFreezeDriver, NetworkPartitionDriver
+- `avatar/intel/` — Mission intel providers (Kimi, Google Maps)
+- `tests/scenarios/` — YAML-driven scenario tests
+
+#### Wave 3 — Integration
+- `scripts/sim.sh` — Docker SIH orchestration
+- `hardware/px4/` — PX4 provisioning scripts (preflight, calibrate, verify)
+- `hardware/pi/` — Pi image build and flash scripts
+- `.github/workflows/` — CI workflows (pr-fast, nightly-rich, release)
+- All 12 scenario pipelines green in Gazebo tier
+
+#### Wave 4 — HITL + Runbooks
+- `tests/hitl/` — HITL gate (`--run-hitl`, `AVATAR_HITL_TARGET`, device discovery)
+- `tests/hitl/fixtures/` — fc_bench and pi_plus_fc fixtures
+- `tests/hitl/test_hitl_failsafes.py` — Failsafe HITL scenarios
+- `tests/hitl/test_hitl_scenarios.py` — YAML scenario subset for HITL
+- `tests/hitl/test_hitl_preflight.py` — Preflight harness wrapper
+- `docs/runbooks/preflight.md` — Preflight checklist procedure
+- `docs/runbooks/first-flight.md` — Tethered first flight procedure
+- `docs/runbooks/troubleshooting.md` — ErrorCode to remediation table
+- `docs/runbooks/calibration.md` — Sensor calibration cadence
+- `docs/runbooks/field-kit.md` — Field packing list
+- `scripts/trivial-flash.sh` — Five-step bring-up helper (spec section 9.5)
+
+### Changed
+
+- README oriented to Docker SIH quickstart + hardware pointers + CI badges
+- All flight tools route through GuardianProcess validation
+- MCP server hardened with structured error envelopes
+
+### Notes
+
+- Physical HITL execution remains environment-scheduled; code + docs satisfy "first-flight-ready" when W4 pytest gate passes on bench FC.
+
+---
+
+## Phase 0.5 (Legacy) - 2026-04-11
 
 ### Added
 
