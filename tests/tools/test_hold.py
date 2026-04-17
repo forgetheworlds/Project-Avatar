@@ -968,17 +968,28 @@ class TestHoldErrorHandling:
 
         HOW IT WORKS:
             1. Sets telemetry_cache._data to None
-            2. Calls hold()
-            3. Verifies result is a valid dict (no crash)
+            2. Mocks _ensure_connection to return error (no drone available)
+            3. Calls hold()
+            4. Verifies result is a valid dict (no crash)
         """
         telemetry_cache._data = None
 
-        # Should handle gracefully without crashing
-        result = await flight_tools.hold(duration_s=0.2)
+        # Mock _ensure_connection to return an error immediately
+        # This prevents the test from hanging while trying to connect to a non-existent drone
+        from avatar.mcp_server.errors import ErrorCode, to_error_envelope
 
-        # Without telemetry, it will try to get from drone
-        # If no drone connection, it will return an error envelope
-        # But it shouldn't crash
+        conn_error = to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "No drone connection available",
+            recoverable=True,
+            suggested_action="Connect to drone before holding position",
+        )
+
+        # Patch _ensure_connection to return the error
+        with patch.object(flight_tools, '_ensure_connection', return_value=conn_error):
+            result = await flight_tools.hold(duration_s=0.2)
+
+        # Should handle gracefully without crashing
         assert isinstance(result, dict)
-        # Result should have either success (old format) or isError (new error envelope)
-        assert "success" in result or "isError" in result
+        # Result should have isError (new error envelope format)
+        assert result.get("isError") is True
