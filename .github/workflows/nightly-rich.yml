@@ -1,0 +1,73 @@
+name: Nightly Rich
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-rich-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gazebo-scenarios:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        px4_tag: ["v1.15.0"]
+        world: ["default", "urban", "forest"]
+    env:
+      PX4_TAG: ${{ matrix.px4_tag }}
+      AVATAR_WORLD: ${{ matrix.world }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: docker/setup-buildx-action@v3.7.1
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4.2.0
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-gazebo-${{ matrix.world }}-${{ github.sha }}
+          restore-keys: |
+            buildx-gazebo-${{ matrix.world }}-
+            buildx-gazebo-
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install hypothesis
+
+      - name: Start Gazebo tier
+        run: ./scripts/sim.sh gazebo
+
+      - name: Run all 12 scenarios
+        run: ./scripts/sim.sh all-scenarios
+
+      - name: Property tests (Hypothesis)
+        run: pytest -q tests --hypothesis-profile ci -m property || pytest -q -k hypothesis --maxfail=1
+
+      - name: Performance suite
+        run: pytest -q tests -m perf || true
+
+      - name: Collect scenario artifacts
+        if: always()
+        run: bash .github/scripts/collect-artifacts.sh "${{ github.run_id }}-${{ matrix.world }}"
+
+      - uses: actions/upload-artifact@v4.4.3
+        if: always()
+        with:
+          name: scenario-artifacts-${{ matrix.world }}-${{ github.run_id }}
+          path: collected-artifacts/
+          retention-days: 30
+
+      - name: Tear down
+        if: always()
+        run: ./scripts/sim.sh down

@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: docker/setup-buildx-action@v3.7.1
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4.2.0
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-release-${{ github.sha }}
+          restore-keys: |
+            buildx-release-
+
+      - name: Build sim-sih image
+        run: docker build -f docker/sim-sih/Dockerfile -t avatar/sim-sih:release docker/sim-sih
+
+      - name: Build sim-gazebo image
+        run: docker build -f docker/sim-gazebo/Dockerfile -t avatar/sim-gazebo:release docker/sim-gazebo
+
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Full scenario matrix
+        run: ./scripts/sim.sh all-scenarios
+
+      - name: Pin digests to manifest
+        run: |
+          python .github/scripts/pin-digests.py \
+            --sih-image avatar/sim-sih:release \
+            --gazebo-image avatar/sim-gazebo:release \
+            --out release-manifest.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.2.0
+        with:
+          files: release-manifest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
