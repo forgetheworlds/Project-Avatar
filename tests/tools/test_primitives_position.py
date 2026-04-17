@@ -327,29 +327,30 @@ class TestPositionStreaming:
         mock_drone.offboard.set_position_ned = AsyncMock()
         mock_drone.offboard.start = AsyncMock()
         mock_drone.offboard.stop = AsyncMock()
-        
+
         # Mock position_velocity_ned to report target reached immediately
         target_pos = MagicMock()
         target_pos.north_m = 10.0
         target_pos.east_m = 5.0
         target_pos.down_m = -10.0
-        
+
         pos_vel_mock = MagicMock()
         pos_vel_mock.position.north_m = 10.0  # At target
         pos_vel_mock.position.east_m = 5.0
         pos_vel_mock.position.down_m = -10.0
-        
+
         mock_drone.telemetry = MagicMock()
-        mock_drone.telemetry.position_velocity_ned = MagicMock()
-        mock_drone.telemetry.position_velocity_ned.__aiter__ = lambda self: self
-        mock_drone.telemetry.position_velocity_ned.__anext__ = AsyncMock(return_value=pos_vel_mock)
+        # Create a proper async iterator mock for position_velocity_ned
+        async def pos_vel_iterator():
+            yield pos_vel_mock
+        mock_drone.telemetry.position_velocity_ned = pos_vel_iterator
         mock_drone.telemetry.position = MagicMock()
         mock_drone.telemetry.position.__aiter__ = lambda self: self
         mock_drone.telemetry.position.__anext__ = AsyncMock(return_value=MagicMock())
-        
+
         from avatar.mcp_server.tools.primitives import PositionNedYaw
         position_setpoint = PositionNedYaw(10.0, 5.0, -10.0, 0.0)
-        
+
         result = await streamer.stream_until_reached(
             drone=mock_drone,
             position_setpoint=position_setpoint,
@@ -359,7 +360,7 @@ class TestPositionStreaming:
             tolerance_m=1.0,
             timeout_s=5.0,
         )
-        
+
         # Verify offboard was started
         mock_drone.offboard.start.assert_called_once()
         # Verify offboard was stopped
@@ -478,20 +479,22 @@ class TestErrorHandling:
 
     async def test_connection_error_handling(self, mock_state_machine):
         """Test graceful handling of connection errors."""
-        with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
-            mock_cm.return_value.ensure_connected = AsyncMock(
-                side_effect=ConnectionError("Not connected")
-            )
-            
-            result = await set_position_ned(
-                north_m=50.0,
-                east_m=25.0,
-                down_m=-20.0,
-            )
-            
-            parsed = json.loads(result)
-            assert parsed["success"] is False
-            assert "Not connected" in parsed["error"]
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine') as mock_get_sm:
+            mock_get_sm.return_value = mock_state_machine
+            with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+                mock_cm.return_value.ensure_connected = AsyncMock(
+                    side_effect=ConnectionError("Not connected")
+                )
+
+                result = await set_position_ned(
+                    north_m=50.0,
+                    east_m=25.0,
+                    down_m=-20.0,
+                )
+
+                parsed = json.loads(result)
+                assert parsed["success"] is False
+                assert "Not connected" in parsed["error"]
 
     async def test_invalid_state_error(self, mock_drone):
         """Test error when drone is in invalid state."""
@@ -575,7 +578,7 @@ class TestConfiguration:
     def test_default_config(self):
         """Verify default configuration values."""
         config = PositionToolsConfig()
-        
+
         assert config.streaming_rate_hz == 20.0
         assert config.approach_timeout_s == 60.0
         assert config.position_tolerance_m == 1.0
@@ -588,10 +591,239 @@ class TestConfiguration:
             approach_timeout_s=30.0,
             position_tolerance_m=0.5,
         )
-        
+
         assert config.streaming_rate_hz == 10.0
         assert config.approach_timeout_s == 30.0
         assert config.position_tolerance_m == 0.5
+
+
+# =============================================================================
+# SET POSITION GPS TESTS
+# =============================================================================
+
+
+class TestSetPositionGpsInputSchema:
+    """Test input schema validation for set_position_gps.
+
+    Validates GPS coordinate input including latitude, longitude, altitude,
+    and speed parameter validation.
+    """
+
+    def test_valid_input(self):
+        """Test that valid input passes schema validation."""
+        from avatar.mcp_server.tools.primitives import SetPositionGpsInput
+        from avatar.mcp_server.schemas import Point
+
+        target = Point(lat_deg=37.7749, lon_deg=-122.4194, alt_m=50.0)
+        input_data = SetPositionGpsInput(target=target, speed_m_s=5.0)
+
+        assert input_data.target.lat_deg == 37.7749
+        assert input_data.target.lon_deg == -122.4194
+        assert input_data.target.alt_m == 50.0
+        assert input_data.speed_m_s == 5.0
+
+    def test_default_speed(self):
+        """Test that default speed is 5.0 m/s."""
+        from avatar.mcp_server.tools.primitives import SetPositionGpsInput
+        from avatar.mcp_server.schemas import Point
+
+        target = Point(lat_deg=0.0, lon_deg=0.0)
+        input_data = SetPositionGpsInput(target=target)
+
+        assert input_data.speed_m_s == 5.0
+
+    def test_speed_must_be_positive(self):
+        """Test that speed must be greater than 0."""
+        from pydantic import ValidationError
+        from avatar.mcp_server.tools.primitives import SetPositionGpsInput
+        from avatar.mcp_server.schemas import Point
+
+        target = Point(lat_deg=0.0, lon_deg=0.0)
+
+        with pytest.raises(ValidationError):
+            SetPositionGpsInput(target=target, speed_m_s=0.0)
+
+        with pytest.raises(ValidationError):
+            SetPositionGpsInput(target=target, speed_m_s=-1.0)
+
+    def test_speed_max_limit(self):
+        """Test that speed cannot exceed 20 m/s."""
+        from pydantic import ValidationError
+        from avatar.mcp_server.tools.primitives import SetPositionGpsInput
+        from avatar.mcp_server.schemas import Point
+
+        target = Point(lat_deg=0.0, lon_deg=0.0)
+
+        with pytest.raises(ValidationError):
+            SetPositionGpsInput(target=target, speed_m_s=21.0)
+
+
+class TestSetPositionGpsStatePreconditions:
+    """Test state machine integration for GPS navigation."""
+
+    @pytest.mark.asyncio
+    async def test_valid_state_hovering(self, mock_state_machine):
+        """Test that set_position_gps works in HOVERING state."""
+        drone = MagicMock()
+        drone.action = MagicMock()
+        drone.action.goto_location = AsyncMock()
+        drone.action.set_maximum_speed = AsyncMock()
+        drone.telemetry = MagicMock()
+
+        async def position_iter():
+            mock_pos = MagicMock()
+            mock_pos.absolute_altitude_m = 100.0
+            yield mock_pos
+        drone.telemetry.position = position_iter
+
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine', return_value=mock_state_machine):
+            with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+                mock_cm.return_value.ensure_connected = AsyncMock(return_value=drone)
+                with patch('avatar.mcp_server.tools.primitives.GuardianProcess') as mock_guardian:
+                    mock_guardian.return_value.validate_command = MagicMock(return_value=(True, ""))
+
+                    result = await set_position_gps(
+                        target={"lat_deg": 37.7749, "lon_deg": -122.4194, "alt_m": 50.0},
+                        speed_m_s=5.0,
+                    )
+
+                    data = json.loads(result)
+                    assert data["success"] is True
+                    drone.action.goto_location.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_state_disarmed(self):
+        """Test that set_position_gps fails in DISARMED state."""
+        sm = FlightStateMachine()
+        sm.transition(FlightState.DISARMED, "startup_complete", "system")
+
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine', return_value=sm):
+            result = await set_position_gps(
+                target={"lat_deg": 0.0, "lon_deg": 0.0, "alt_m": 10.0},
+            )
+
+            data = json.loads(result)
+            assert data.get("isError") is True or data.get("success") is False
+
+
+class TestSetPositionGpsExecution:
+    """Test GPS navigation command execution."""
+
+    @pytest.mark.asyncio
+    async def test_goto_location_called_with_correct_params(self, mock_state_machine):
+        """Test that goto_location is called with correct parameters."""
+        drone = MagicMock()
+        drone.action = MagicMock()
+        drone.action.goto_location = AsyncMock()
+        drone.action.set_maximum_speed = AsyncMock()
+        drone.telemetry = MagicMock()
+
+        async def position_iter():
+            mock_pos = MagicMock()
+            mock_pos.absolute_altitude_m = 100.0
+            yield mock_pos
+        drone.telemetry.position = position_iter
+
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine', return_value=mock_state_machine):
+            with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+                mock_cm.return_value.ensure_connected = AsyncMock(return_value=drone)
+                with patch('avatar.mcp_server.tools.primitives.GuardianProcess') as mock_guardian:
+                    mock_guardian.return_value.validate_command = MagicMock(return_value=(True, ""))
+
+                    result = await set_position_gps(
+                        target={"lat_deg": 37.7749, "lon_deg": -122.4194, "alt_m": 50.0},
+                        speed_m_s=8.0,
+                    )
+
+                    drone.action.goto_location.assert_called_once()
+                    args, _ = drone.action.goto_location.call_args
+                    assert args[0] == 37.7749  # lat
+                    assert args[1] == -122.4194  # lon
+                    assert args[2] == 50.0  # alt
+
+    @pytest.mark.asyncio
+    async def test_result_format_on_success(self, mock_state_machine):
+        """Test result format on successful navigation."""
+        drone = MagicMock()
+        drone.action = MagicMock()
+        drone.action.goto_location = AsyncMock()
+        drone.action.set_maximum_speed = AsyncMock()
+        drone.telemetry = MagicMock()
+
+        async def position_iter():
+            mock_pos = MagicMock()
+            mock_pos.absolute_altitude_m = 100.0
+            yield mock_pos
+        drone.telemetry.position = position_iter
+
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine', return_value=mock_state_machine):
+            with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+                mock_cm.return_value.ensure_connected = AsyncMock(return_value=drone)
+                with patch('avatar.mcp_server.tools.primitives.GuardianProcess') as mock_guardian:
+                    mock_guardian.return_value.validate_command = MagicMock(return_value=(True, ""))
+
+                    result = await set_position_gps(
+                        target={"lat_deg": 37.7749, "lon_deg": -122.4194, "alt_m": 50.0},
+                        speed_m_s=5.0,
+                    )
+
+                    data = json.loads(result)
+                    assert data["success"] is True
+                    assert "target" in data
+                    assert data["target"]["lat_deg"] == 37.7749
+                    assert data["target"]["lon_deg"] == -122.4194
+                    assert data["speed_m_s"] == 5.0
+
+
+class TestSetPositionGpsErrorHandling:
+    """Test error handling in set_position_gps."""
+
+    @pytest.mark.asyncio
+    async def test_connection_error_handling(self, mock_state_machine):
+        """Test graceful handling of connection errors."""
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine', return_value=mock_state_machine):
+            with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+                mock_cm.return_value.ensure_connected = AsyncMock(
+                    side_effect=ConnectionError("Not connected")
+                )
+
+                result = await set_position_gps(
+                    target={"lat_deg": 0.0, "lon_deg": 0.0, "alt_m": 10.0},
+                )
+
+                data = json.loads(result)
+                assert data.get("isError") is True or data.get("success") is False
+
+    @pytest.mark.asyncio
+    async def test_guardian_validation_failure(self, mock_state_machine):
+        """Test handling when Guardian rejects the command."""
+        drone = MagicMock()
+        drone.action = MagicMock()
+        drone.action.goto_location = AsyncMock()
+
+        with patch('avatar.mcp_server.tools.primitives.get_state_machine', return_value=mock_state_machine):
+            with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+                mock_cm.return_value.ensure_connected = AsyncMock(return_value=drone)
+                with patch('avatar.mcp_server.tools.primitives.GuardianProcess') as mock_guardian:
+                    mock_guardian.return_value.validate_command = MagicMock(
+                        return_value=(False, "Position outside geofence")
+                    )
+
+                    result = await set_position_gps(
+                        target={"lat_deg": 0.0, "lon_deg": 0.0, "alt_m": 10.0},
+                    )
+
+                    data = json.loads(result)
+                    assert data.get("isError") is True or data.get("success") is False
+                    drone.action.goto_location.assert_not_called()
+
+
+# =============================================================================
+# IMPORT FOR GPS TESTS
+# =============================================================================
+
+# Import set_position_gps for the tests above
+from avatar.mcp_server.tools.primitives import set_position_gps
 
 
 # =============================================================================

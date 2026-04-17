@@ -555,15 +555,15 @@ class TestAutoRtlOnDrift:
         WHAT THIS TEST VALIDATES:
             With significant drift (~67m) and tight tolerance (5m), when
             auto_rtl_on_drift is enabled, the system:
-            - Reports success=False (hold failed due to safety)
-            - Reports reason="rtl_triggered_due_to_drift"
+            - Returns isError=True (hold failed due to safety)
+            - Returns error.code=GUARDIAN_VIOLATION
             - Transitions state machine to RTL
-            - Reports drift distance > tolerance
+            - Reports drift distance > tolerance in error.details
 
         EXPECTED OUTCOMES:
-            - success=False (safety intervention occurred)
-            - reason indicates RTL was triggered
-            - drift_m > 5.0 (exceeded tolerance)
+            - isError=True (safety intervention occurred)
+            - error.code indicates GUARDIAN_VIOLATION
+            - error.details.drift_m > 5.0 (exceeded tolerance)
             - state_machine.current_state == FlightState.RTL
 
         HOW IT WORKS:
@@ -593,9 +593,11 @@ class TestAutoRtlOnDrift:
             auto_rtl_on_drift=True
         )
 
-        assert result["success"] is False
-        assert result["reason"] == "rtl_triggered_due_to_drift"
-        assert result["drift_m"] > 5.0
+        # With structured error envelope, isError=True indicates failure
+        assert result.get("isError") is True
+        assert result["error"]["code"] == "GUARDIAN_VIOLATION"
+        # Drift info is in error.details
+        assert result["error"]["details"]["drift_m"] > 5.0
         # State should have transitioned to RTL via failsafe
         assert state_machine.current_state == FlightState.RTL
 
@@ -783,9 +785,9 @@ class TestStatePrecondition:
             instead of attempting to execute (which would be nonsensical).
 
         EXPECTED OUTCOMES:
-            - success=False
-            - error field contains explanation
-            - error message mentions current state (DISARMED)
+            - isError=True
+            - error.code is PREFLIGHT_BLOCKED
+            - error.message mentions current state (DISARMED)
 
         HOW IT WORKS:
             1. Creates fresh state machine in DISARMED state
@@ -809,9 +811,11 @@ class TestStatePrecondition:
 
         result = await tools.hold(duration_s=0.2)
 
-        assert result["success"] is False
-        assert "error" in result
-        assert "DISARMED" in result["error"]
+        # With structured error envelope, isError=True indicates failure
+        assert result.get("isError") is True
+        assert result["error"]["code"] == "PREFLIGHT_BLOCKED"
+        # The state name should be in the error message
+        assert "DISARMED" in result["error"]["message"]
 
 
 # =============================================================================
@@ -959,7 +963,7 @@ class TestHoldErrorHandling:
 
         EXPECTED OUTCOMES:
             - Does not raise exception
-            - Returns a dictionary with success/error fields
+            - Returns a dictionary with either success=True or isError=True
             - Either succeeds by trying to get from drone, or fails gracefully
 
         HOW IT WORKS:
@@ -973,7 +977,8 @@ class TestHoldErrorHandling:
         result = await flight_tools.hold(duration_s=0.2)
 
         # Without telemetry, it will try to get from drone
-        # If no drone connection, it will return an error
+        # If no drone connection, it will return an error envelope
         # But it shouldn't crash
         assert isinstance(result, dict)
-        assert "success" in result
+        # Result should have either success (old format) or isError (new error envelope)
+        assert "success" in result or "isError" in result

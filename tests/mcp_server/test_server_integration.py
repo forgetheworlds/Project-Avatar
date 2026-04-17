@@ -338,19 +338,18 @@ class TestServerInitialization:
         """Server initializes HeartbeatService with 20Hz emission.
 
         INTEGRATION POINT:
-        HeartbeatService sends periodic MAVLink heartbeats to PX4 at 20Hz.
-        This prevents PX4 from triggering failsafe due to lost GCS link.
+        HeartbeatService (Wave 1) monitors agent-liveness, not MAVLink emission.
+        It tracks heartbeats from distributed sources (LLM, Guardian, etc.).
 
         TEST FLOW:
-        1. Verify heartbeat_hz == 20.0 in config
+        1. Verify config is set correctly (heartbeat_hz for internal timing)
         2. Initialize server
         3. Assert heartbeat service is running
-        4. Wait 150ms (should see ~3 heartbeats at 20Hz)
-        5. Verify emit_count >= 2
+        4. Verify get_metrics() returns valid structure
 
         VALIDATION:
         - heartbeat_service.is_running is True
-        - get_metrics() shows at least 2 heartbeats emitted
+        - get_metrics() returns sources dict
         """
         server = AvatarMCPServer()
 
@@ -363,14 +362,15 @@ class TestServerInitialization:
             await server.initialize()
 
             # Heartbeat service should be running
+            # Note: monitor_loop sets _running=True when it starts executing
+            # Give the event loop a moment to schedule the task
+            await asyncio.sleep(0.01)
             assert server.heartbeat_service.is_running is True
 
-            # Wait for some heartbeats
-            await asyncio.sleep(0.15)
-
-            # Should have emitted at least 2 heartbeats (20Hz = 3 in 0.15s)
+            # Verify metrics structure (Wave 1: agent-liveness metrics)
             metrics = server.heartbeat_service.get_metrics()
-            assert metrics["emit_count"] >= 2
+            assert "sources" in metrics
+            assert "stale_count" in metrics
 
         await server.shutdown()
 
@@ -673,6 +673,8 @@ class TestGracefulShutdown:
             mock_connect.return_value = mock_drone
 
             await server.initialize()
+            # Give event loop time to schedule the monitor task
+            await asyncio.sleep(0.01)
             assert server.heartbeat_service.is_running is True
 
             await server.shutdown()
@@ -840,7 +842,7 @@ class TestEndToEndFlow:
 
     @pytest.mark.asyncio
     async def test_get_status_tool(self, mock_drone: MagicMock) -> None:
-        """get_status tool returns comprehensive status.
+        """get_server_status tool returns comprehensive status.
 
         TOOL PURPOSE:
         Provides the AI agent with complete system health information including:
@@ -853,7 +855,7 @@ class TestEndToEndFlow:
 
         REQUEST FORMAT:
         ```json
-        {"name": "get_status", "arguments": {}}
+        {"name": "get_server_status", "arguments": {}}
         ```
 
         RESPONSE FORMAT:
@@ -862,7 +864,7 @@ class TestEndToEndFlow:
             "initialized": true,
             "connection": {"state": "CONNECTED", "health": "healthy"},
             "telemetry": {"position": {...}, "battery": {...}},
-            "heartbeat": {"emit_count": 150, "last_emit_ms": 50},
+            "heartbeat": {"sources": {...}, "stale_count": 0},
             "state_machine": {"current_state": "DISARMED", ...},
             "guardian": {"is_running": true, "active_monitors": [...]}
         }
@@ -870,7 +872,7 @@ class TestEndToEndFlow:
 
         TEST FLOW:
         1. Initialize server
-        2. Call _route_tool("get_status", {})
+        2. Call _route_tool("get_server_status", {})
         3. Parse JSON response
         4. Verify all expected keys present
         5. Validate data types and values
@@ -888,7 +890,7 @@ class TestEndToEndFlow:
             await server.initialize()
 
             # Route the tool call
-            result_str = await server._route_tool("get_status", {})
+            result_str = await server._route_tool("get_server_status", {})
             result = json.loads(result_str)
 
             # Verify structure
@@ -1005,6 +1007,9 @@ class TestEndToEndFlow:
         - arm() and takeoff() were called on mock
         """
         server = AvatarMCPServer()
+
+        # Enable auto-confirm for this test (bypasses confirmation prompt)
+        server.confirmation_manager.auto_confirm = True
 
         # Set up mock to appear armed after takeoff
         async def mock_armed_after_takeoff():
@@ -1835,6 +1840,8 @@ class TestLifecycleManagement:
             assert server._initialized is True
             assert server.connection_manager.state == ConnectionState.CONNECTED
             assert server.telemetry_cache._started is True
+            # Give event loop time to schedule the monitor task
+            await asyncio.sleep(0.01)
             assert server.heartbeat_service.is_running is True
             assert server.guardian.is_running is True
 
@@ -1892,6 +1899,8 @@ class TestLifecycleManagement:
 
             # Components should still be healthy
             assert server.telemetry_cache._started is True
+            # Give event loop time to schedule the monitor task
+            await asyncio.sleep(0.01)
             assert server.heartbeat_service.is_running is True
 
         await server.shutdown()
@@ -1912,7 +1921,7 @@ class TestLifecycleManagement:
 
         TEST FLOW:
         1. Create server (don't initialize)
-        2. Call get_status tool
+        2. Call get_server_status tool
         3. Verify response shows uninitialized state
 
         VALIDATION:
@@ -1925,11 +1934,11 @@ class TestLifecycleManagement:
 
         # Simulate calling without initialization
         # The routing should still work (it returns status showing uninitialized)
-        handler_results = await server._route_tool("get_status", {})
+        handler_results = await server._route_tool("get_server_status", {})
         result = json.loads(handler_results)
 
         # Status should reflect that server is not initialized
-        assert result["initialized"] is False
+        assert result.get("initialized") is False
 
         # Non-status tools may fail when server not initialized
         # (This depends on the specific tool implementation)

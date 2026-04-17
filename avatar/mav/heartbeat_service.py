@@ -186,6 +186,11 @@ class HeartbeatService:
         self._monitor_task: Optional[asyncio.Task[Any]] = None
 
     @property
+    def config(self) -> HeartbeatConfig:
+        """Get the heartbeat service configuration."""
+        return self._config
+
+    @property
     def is_running(self) -> bool:
         """Whether the monitor loop is running."""
         return self._running

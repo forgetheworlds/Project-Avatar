@@ -683,6 +683,41 @@ def avatar_mcp_tool_definitions() -> List[Any]:
             annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         # ==============================================================================
+        # FLIGHT MODE PRIMITIVE
+        # ==============================================================================
+        types.Tool(
+            name="set_flight_mode",
+            description=(
+                "Change the PX4 flight mode. "
+                "Valid modes: HOLD, OFFBOARD, AUTO_RTL, MANUAL, STABILIZED, ALTCTL, POSCTL, ACRO, ORBIT, AUTO_MISSION, AUTO_LOITER. "
+                "HOLD: Loiter at current position. "
+                "OFFBOARD: Accept external setpoints (requires active setpoint stream). "
+                "AUTO_RTL: Return to launch position and land. "
+                "WARNING: Mode changes can interrupt ongoing missions."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "description": "Target flight mode",
+                        "enum": [
+                            "UNKNOWN", "MANUAL", "STABILIZED", "ALTCTL", "POSCTL",
+                            "OFFBOARD", "AUTO_MISSION", "AUTO_LOITER", "AUTO_RTL",
+                            "ACRO", "ORBIT", "HOLD",
+                        ],
+                    },
+                    "submode": {
+                        "type": "string",
+                        "description": "Optional submode for mode-specific behavior",
+                    },
+                },
+                "required": ["mode"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        # ==============================================================================
         # VISION TOOLS - Object detection and tracking
         # ==============================================================================
         types.Tool(
@@ -1327,23 +1362,6 @@ def avatar_mcp_tool_definitions() -> List[Any]:
             },
             outputSchema=STANDARD_OUTPUT_SCHEMA,
             annotations=EMERGENCY_ANNOTATIONS,
-        ),
-        types.Tool(
-            name="set_flight_mode",
-            description="Set the PX4 flight mode.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["UNKNOWN", "MANUAL", "STABILIZED", "ALTCTL", "POSCTL", "OFFBOARD", "AUTO_MISSION", "AUTO_LOITER", "AUTO_RTL", "ACRO", "ORBIT", "HOLD"],
-                        "description": "Flight mode to set",
-                    },
-                },
-                "required": ["mode"],
-            },
-            outputSchema=STANDARD_OUTPUT_SCHEMA,
-            annotations=FLIGHT_CONTROL_ANNOTATIONS,
         ),
         types.Tool(
             name="set_home",
@@ -2359,6 +2377,20 @@ class AvatarMCPServer:
                 operation_id=arguments.get("operation_id", "")
             )
 
+        # ==============================================================================
+        # PRIMITIVE TOOL HANDLERS - Low-level position control
+        # ==============================================================================
+
+        elif name == "set_position_ned":
+            # Command position in NED frame using offboard mode
+            return await set_position_ned(
+                north_m=arguments.get("north_m", 0.0),
+                east_m=arguments.get("east_m", 0.0),
+                down_m=arguments.get("down_m", -10.0),
+                yaw_deg=arguments.get("yaw_deg"),
+                speed_m_s=arguments.get("speed_m_s", 5.0),
+            )
+
         else:
             # Unknown tool name - return error
             return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
@@ -2516,7 +2548,7 @@ class AvatarMCPServer:
             logger.warning(f"Error stopping telemetry cache: {e}")
 
         try:
-            await self.heartbeat_service.stop()
+            await self.heartbeat_service.stop_async()
         except Exception as e:
             logger.warning(f"Error stopping heartbeat service: {e}")
 
@@ -2565,7 +2597,7 @@ class AvatarMCPServer:
         # ==============================================================================
         logger.info("Stopping heartbeat service...")
         try:
-            await self.heartbeat_service.stop()
+            await self.heartbeat_service.stop_async()
             logger.info("Heartbeat service stopped")
         except Exception as e:
             logger.warning(f"Error stopping heartbeat service: {e}")

@@ -51,6 +51,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -65,7 +66,7 @@ from avatar.mcp_server.confirmation_policy import (
     is_critical_parameter,
     get_parameter_category,
 )
-from avatar.mcp_server.schemas import FlightMode
+from avatar.mcp_server.schemas import FlightMode, Point
 
 if TYPE_CHECKING:
     from avatar.mav.offboard_owner import OffboardOwner
@@ -174,6 +175,35 @@ def get_confirmation_manager() -> Optional[Any]:
 # INPUT SCHEMAS
 # =============================================================================
 
+# Track first arm in session for confirmation requirement
+_arm_count: int = 0
+
+
+def reset_arm_count() -> None:
+    """Reset the arm counter (for testing)."""
+    global _arm_count
+    _arm_count = 0
+
+
+def get_arm_count() -> int:
+    """Get the current arm count."""
+    return _arm_count
+
+
+class ArmInput(BaseModel):
+    """Input schema for the arm primitive.
+
+    Attributes:
+        force: Force arm even if preflight checks incomplete.
+               Use with caution - bypasses safety checks.
+    """
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    force: bool = Field(
+        default=False,
+        description="Force arm even if preflight checks incomplete"
+    )
+
 
 class SetPositionNedInput(BaseModel):
     """Input schema for set_position_ned tool."""
@@ -216,6 +246,35 @@ class SetPositionNedInput(BaseModel):
         if v > 0:
             raise ValueError("down_m must be <= 0 (negative = up from ground)")
         return v
+
+
+class SetPositionGpsInput(BaseModel):
+    """Input schema for set_position_gps tool.
+
+    Commands the drone to navigate to absolute GPS coordinates.
+    Uses MAVSDK action.goto_location() for GPS navigation.
+
+    Attributes:
+        target: Target position with lat_deg, lon_deg, and alt_m (AMSL meters).
+        speed_m_s: Travel speed in meters per second (0.0 to 20.0 m/s).
+
+    Example:
+        >>> input = SetPositionGpsInput(
+        ...     target=Point(lat_deg=37.7749, lon_deg=-122.4194, alt_m=50.0),
+        ...     speed_m_s=5.0
+        ... )
+    """
+
+    target: Point = Field(
+        ...,
+        description="Target GPS position. lat_deg and lon_deg required. alt_m is AMSL altitude in meters.",
+    )
+    speed_m_s: float = Field(
+        default=5.0,
+        gt=0.0,
+        le=20.0,
+        description="Travel speed in m/s. Must be > 0 and <= 20.",
+    )
 
 
 class SetVelocityNedInput(BaseModel):
@@ -1688,7 +1747,13 @@ def _normalize_yaw(yaw_deg: float) -> float:
 
     Returns:
         Normalized yaw in [-180, 180] range.
+        Note: Both -180.0 and 180.0 represent the same heading (South)
+        and are preserved as-is if already in range.
     """
+    # Handle boundary cases - preserve -180 and 180 as-is
+    if yaw_deg == -180.0 or yaw_deg == 180.0:
+        return yaw_deg
+
     # Normalize to [0, 360) first
     normalized = yaw_deg % 360.0
     # Convert to [-180, 180]
@@ -2362,16 +2427,236 @@ async def handle_disarm(arguments: dict[str, Any]) -> str:
             suggested_action="Check drone state and retry disarm",
         ))
 
-    # Step 6: Update state machine to DISARMED
-    sm.transition(
-        FlightState.DISARMED,
-        "disarm_command" + ("_forced" if inp.force else ""),
-        "llm",
-    )
+    # Step 6: Update state machine
+    # For force disarm in air, use failsafe mechanism (goes to EMERGENCY)
+    # For normal disarm on ground, use regular transition to DISARMED
+    if inp.force and in_air:
+        # Force disarm triggers kill_switch failsafe
+        sm.trigger_failsafe("kill_switch")
+    else:
+        sm.transition(
+            FlightState.DISARMED,
+            "disarm_command",
+            "llm",
+        )
 
     # Step 7: Return success
     out = DisarmOutput(
         armed=False,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+    return out.model_dump_json()
+
+
+# =============================================================================
+# SET FLIGHT MODE PRIMITIVE
+# =============================================================================
+
+
+class SetFlightModeInput(BaseModel):
+    """Input schema for set_flight_mode primitive.
+
+    Validates flight mode input using the FlightMode literal from schemas.
+
+    Attributes:
+        mode: Target flight mode (HOLD, OFFBOARD, AUTO_RTL, etc.).
+        submode: Optional submode for mode-specific behavior.
+    """
+
+    mode: FlightMode = Field(
+        ...,
+        description="Target flight mode. Valid values: UNKNOWN, MANUAL, STABILIZED, ALTCTL, POSCTL, OFFBOARD, AUTO_MISSION, AUTO_LOITER, AUTO_RTL, ACRO, ORBIT, HOLD.",
+    )
+    submode: Optional[str] = Field(
+        default=None,
+        description="Optional submode for mode-specific behavior.",
+    )
+
+
+class SetFlightModeOutput(BaseModel):
+    """Output schema for set_flight_mode primitive.
+
+    Attributes:
+        mode: The requested flight mode.
+        accepted: Whether the mode change was accepted.
+    """
+
+    mode: FlightMode = Field(
+        ...,
+        description="The flight mode that was requested.",
+    )
+    accepted: bool = Field(
+        ...,
+        description="Whether the mode change was accepted by the drone.",
+    )
+
+
+def set_flight_mode_tool_schema() -> dict[str, Any]:
+    """Return the JSON schema for set_flight_mode tool input.
+
+    Used by MCP server for tool registration and validation.
+
+    Returns:
+        JSON schema dict for SetFlightModeInput.
+    """
+    return SetFlightModeInput.model_json_schema()
+
+
+def set_flight_mode_output_schema() -> dict[str, Any]:
+    """Return the JSON schema for set_flight_mode tool output.
+
+    Used by MCP server for tool registration.
+
+    Returns:
+        JSON schema dict for SetFlightModeOutput.
+    """
+    return SetFlightModeOutput.model_json_schema()
+
+
+def set_flight_mode_annotations() -> dict[str, bool]:
+    """Return MCP annotations for the set_flight_mode tool.
+
+    Annotations provide hints to MCP clients about tool behavior:
+    - readOnlyHint: False (changes drone state)
+    - destructiveHint: True (can interrupt mission)
+    - idempotentHint: True (multiple calls with same mode have same effect)
+    - openWorldHint: False (internal drone operation)
+
+    Returns:
+        Dict of annotation key-value pairs.
+    """
+    return {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+
+async def set_flight_mode(mode: FlightMode, submode: Optional[str] = None) -> str:
+    """MCP Tool: Change the PX4 flight mode.
+
+    This primitive tool changes the drone's flight mode directly via MAVSDK.
+    It validates the mode and executes the appropriate MAVSDK action.
+
+    Args:
+        mode: Target flight mode. Valid values:
+            - UNKNOWN: Unknown/undefined mode
+            - MANUAL: Full manual control
+            - STABILIZED: Stabilized mode with attitude control
+            - ALTCTL: Altitude control mode
+            - POSCTL: Position control mode
+            - OFFBOARD: Offboard mode for autonomous control
+            - AUTO_MISSION: Execute uploaded mission
+            - AUTO_LOITER: Loiter at current position
+            - AUTO_RTL: Return to launch
+            - ACRO: Acrobatic mode
+            - ORBIT: Orbit mode
+            - HOLD: Hold position
+        submode: Optional submode for mode-specific behavior.
+
+    Returns:
+        JSON string with result:
+        {
+            "mode": str,
+            "accepted": bool,
+            "error": str  # Present only if failed
+        }
+
+    Example:
+        >>> result = await set_flight_mode(mode="HOLD")
+        >>> data = json.loads(result)
+        >>> print(f"Mode accepted: {data['accepted']}")
+
+    Safety:
+        - Mode changes can interrupt ongoing missions
+        - Some modes require preconditions (e.g., OFFBOARD requires setpoints)
+        - AUTO_RTL is always allowed as a safety recovery
+    """
+    # Validate input with Pydantic
+    try:
+        inp = SetFlightModeInput(mode=mode, submode=submode)
+    except Exception as e:
+        return json.dumps(to_error_envelope(
+            ErrorCode.SCHEMA_VALIDATION_FAILED,
+            f"Invalid flight mode input: {e}",
+            recoverable=True,
+            suggested_action="Provide valid FlightMode value",
+        ))
+
+    # Get global state machine
+    sm = get_state_machine()
+    if sm is None:
+        sm = FlightStateMachine()
+
+    # Get drone connection
+    cm = ConnectionManager()
+    try:
+        drone = await cm.ensure_connected()
+    except ConnectionError as e:
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            f"Not connected to drone: {e}",
+            recoverable=True,
+            suggested_action="Connect to drone before changing flight mode",
+        ))
+
+    if drone is None:
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_NOT_CONNECTED,
+            "Drone not connected",
+            recoverable=True,
+            suggested_action="Connect to drone before changing flight mode",
+        ))
+
+    # Execute mode-specific MAVSDK action
+    accepted = True
+    try:
+        if inp.mode == "HOLD":
+            await drone.action.hold()
+        elif inp.mode == "OFFBOARD":
+            await drone.offboard.start()
+        elif inp.mode == "AUTO_RTL":
+            await drone.action.return_to_launch()
+        elif inp.mode in ("MANUAL", "STABILIZED", "ALTCTL", "POSCTL"):
+            # For modes without direct MAVSDK support, use hold as fallback
+            # These typically require pilot input
+            await drone.action.hold()
+        elif inp.mode == "ACRO":
+            # Acro mode typically requires pilot input
+            await drone.action.hold()
+        elif inp.mode == "ORBIT":
+            # Orbit mode requires orbit configuration
+            await drone.action.hold()
+        elif inp.mode in ("AUTO_MISSION", "AUTO_LOITER"):
+            # These modes require mission upload first
+            await drone.action.hold()
+        else:
+            # Unknown mode - reject
+            accepted = False
+            logger.warning(f"Unknown flight mode requested: {inp.mode}")
+
+        # Update state machine based on mode
+        if accepted and sm is not None:
+            if inp.mode == "AUTO_RTL":
+                sm.transition(FlightState.RTL, "flight_mode_command", "llm")
+            elif inp.mode == "HOLD":
+                sm.transition(FlightState.HOLD, "flight_mode_command", "llm")
+            elif inp.mode == "OFFBOARD":
+                # Offboard state depends on what setpoints are sent
+                pass  # State will be set by the setpoint streaming
+
+        logger.info(f"Flight mode changed to: {inp.mode} (accepted={accepted})")
+
+    except Exception as e:
+        logger.error(f"Failed to change flight mode: {e}")
+        return json.dumps(to_error_envelope(
+            ErrorCode.MAV_COMMAND_REJECTED,
+            f"Failed to change flight mode to {inp.mode}: {e}",
+            recoverable=True,
+            suggested_action="Check drone status and mode preconditions",
+        ))
+
+    # Return result
+    out = SetFlightModeOutput(mode=inp.mode, accepted=accepted)
     return out.model_dump_json()

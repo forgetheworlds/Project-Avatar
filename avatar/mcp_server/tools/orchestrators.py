@@ -564,9 +564,22 @@ def _calculate_intercept_velocity(
     # Proportional control with distance error
     kp = 0.3
 
-    vel_north = _clamp(error_x * kp, -max_speed, max_speed)
-    vel_east = _clamp(error_y * kp, -max_speed, max_speed)
-    vel_down = _clamp(error_z * kp, -max_speed * 0.3, max_speed * 0.3)
+    # Calculate raw velocity components
+    vel_north = error_x * kp
+    vel_east = error_y * kp
+    vel_down = error_z * kp
+
+    # Clamp vertical velocity separately (safer for altitude control)
+    max_vertical_speed = max_speed * 0.3
+    vel_down = _clamp(vel_down, -max_vertical_speed, max_vertical_speed)
+
+    # Clamp the HORIZONTAL velocity magnitude to max_speed
+    # This ensures the total horizontal speed doesn't exceed max_speed
+    horizontal_vel_mag = math.sqrt(vel_north**2 + vel_east**2)
+    if horizontal_vel_mag > max_speed and horizontal_vel_mag > 0:
+        scale = max_speed / horizontal_vel_mag
+        vel_north *= scale
+        vel_east *= scale
 
     return vel_north, vel_east, vel_down
 

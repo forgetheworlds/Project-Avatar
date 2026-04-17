@@ -44,8 +44,20 @@ class TestRunPreflightSchema:
         schema = preflight.run_preflight_tool_schema()
         assert "properties" in schema
         assert "checks" in schema["properties"]
-        assert schema["properties"]["checks"]["type"] == "array"
-        assert schema["properties"]["checks"]["items"]["type"] == "string"
+        # Pydantic v2 uses anyOf for Optional fields
+        checks_schema = schema["properties"]["checks"]
+        if "anyOf" in checks_schema:
+            # Find the array type in anyOf
+            array_schema = next(
+                (s for s in checks_schema["anyOf"] if s.get("type") == "array"),
+                None
+            )
+            assert array_schema is not None
+            assert array_schema["items"]["type"] == "string"
+        else:
+            # Fallback for simpler schema format
+            assert checks_schema["type"] == "array"
+            assert checks_schema["items"]["type"] == "string"
 
     def test_run_preflight_output_schema(self):
         """Output schema has expected structure."""
@@ -144,6 +156,8 @@ class TestRunPreflightAllChecks:
         """All checks pass when telemetry is healthy."""
         preflight.set_telemetry_cache(mock_telemetry_cache)
         preflight.set_guardian(mock_guardian)
+        # Wire up mock_drone to be returned by ensure_connected
+        mock_connection_manager.ensure_connected = AsyncMock(return_value=mock_drone)
         preflight.set_connection_manager(mock_connection_manager)
 
         result = await preflight.run_preflight()

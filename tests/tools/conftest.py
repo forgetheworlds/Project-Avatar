@@ -91,7 +91,22 @@ mock_mavsdk.telemetry = mock_telemetry
 mock_offboard = MagicMock()
 mock_offboard.Offboard = MagicMock  # Main offboard control class
 mock_offboard.PositionNedYaw = MagicMock  # Position setpoint with yaw
-mock_offboard.VelocityNedYaw = MagicMock  # Velocity setpoint with yaw
+
+
+# Create a proper VelocityNedYaw mock class that stores attributes
+class MockVelocityNedYaw:
+    """Mock VelocityNedYaw that stores attributes like the real MAVSDK class."""
+    def __init__(self, north_m_s: float, east_m_s: float, down_m_s: float, yaw_deg: float):
+        self.north_m_s = north_m_s
+        self.east_m_s = east_m_s
+        self.down_m_s = down_m_s
+        self.yaw_deg = yaw_deg
+
+    def __repr__(self):
+        return f"VelocityNedYaw(north={self.north_m_s}, east={self.east_m_s}, down={self.down_m_s}, yaw={self.yaw_deg})"
+
+
+mock_offboard.VelocityNedYaw = MockVelocityNedYaw  # Velocity setpoint with yaw
 mock_offboard.VelocityBodyYawspeed = MagicMock  # Body-frame velocity
 mock_mavsdk.offboard = mock_offboard
 

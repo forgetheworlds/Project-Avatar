@@ -168,7 +168,7 @@ class TestVelocityLimits:
             rejected before any drone communication occurs.
 
         EXPECTED OUTCOMES:
-            - success=False
+            - isError=True (Wave 1 error envelope format)
             - error message mentions "15 m/s" limit
 
         HOW IT WORKS:
@@ -179,8 +179,9 @@ class TestVelocityLimits:
             north_m_s=16.0, east_m_s=0.0, down_m_s=0.0, duration_s=0.1
         )
 
-        assert result["success"] is False
-        assert "15 m/s" in result["error"]
+        # Wave 1 error envelope format
+        assert result.get("isError") is True
+        assert "15 m/s" in result.get("error", {}).get("message", "")
 
     async def test_horizontal_speed_diagonal(self, flight_tools):
         """Test rejection of diagonal velocities where vector magnitude exceeds 15 m/s.
@@ -191,7 +192,7 @@ class TestVelocityLimits:
             11.31 m/s east has total magnitude of 16 m/s, which exceeds limit.
 
         EXPECTED OUTCOMES:
-            - success=False
+            - isError=True (Wave 1 error envelope format)
             - error mentions "15 m/s" (the limit, not the calculated magnitude)
 
         HOW IT WORKS:
@@ -203,8 +204,9 @@ class TestVelocityLimits:
             north_m_s=11.31, east_m_s=11.31, down_m_s=0.0, duration_s=0.1
         )
 
-        assert result["success"] is False
-        assert "15 m/s" in result["error"]
+        # Wave 1 error envelope format
+        assert result.get("isError") is True
+        assert "15 m/s" in result.get("error", {}).get("message", "")
 
     async def test_vertical_speed_limit_up(self, flight_tools):
         """Test rejection of upward velocities exceeding 3 m/s.
@@ -214,7 +216,7 @@ class TestVelocityLimits:
             North-East-Down). down_m_s=-4.0 means 4 m/s upward, exceeding limit.
 
         EXPECTED OUTCOMES:
-            - success=False
+            - isError=True (Wave 1 error envelope format)
             - error mentions "3 m/s" vertical limit
 
         HOW IT WORKS:
@@ -225,8 +227,9 @@ class TestVelocityLimits:
             north_m_s=0.0, east_m_s=0.0, down_m_s=-4.0, duration_s=0.1
         )
 
-        assert result["success"] is False
-        assert "3 m/s" in result["error"]
+        # Wave 1 error envelope format
+        assert result.get("isError") is True
+        assert "3 m/s" in result.get("error", {}).get("message", "")
 
     async def test_vertical_speed_limit_down(self, flight_tools):
         """Test rejection of downward velocities exceeding 3 m/s.
@@ -235,7 +238,7 @@ class TestVelocityLimits:
             Positive down_m_s means downward velocity. 4 m/s descent exceeds limit.
 
         EXPECTED OUTCOMES:
-            - success=False
+            - isError=True (Wave 1 error envelope format)
             - error mentions "3 m/s"
 
         HOW IT WORKS:
@@ -245,8 +248,9 @@ class TestVelocityLimits:
             north_m_s=0.0, east_m_s=0.0, down_m_s=4.0, duration_s=0.1
         )
 
-        assert result["success"] is False
-        assert "3 m/s" in result["error"]
+        # Wave 1 error envelope format
+        assert result.get("isError") is True
+        assert "3 m/s" in result.get("error", {}).get("message", "")
 
     async def test_valid_speeds_accepted(self, flight_tools, mock_drone):
         """Test that velocities within limits pass validation.
@@ -401,8 +405,9 @@ class TestStatePreconditions:
 
             result = await tools.set_velocity(duration_s=0.1)
 
-            assert result["success"] is False
-            assert "Cannot set_velocity in state" in result["error"]
+            # Wave 1 error envelope format
+            assert result.get("isError") is True
+            assert "Cannot set_velocity in state" in result.get("error", {}).get("message", "")
 
     async def test_state_transition_to_velocity_control(self, flight_tools, mock_drone):
         """Test that state transitions to VELOCITY_CONTROL during operation.
@@ -541,7 +546,7 @@ class TestOffboardStreaming:
 
         # Check that initial setpoint matches
         first_call = calls[0]
-        sent_velocity = first_call[0][0]
+        sent_velocity = first_call.args[0]
         assert sent_velocity.north_m_s == 5.0
         assert sent_velocity.east_m_s == 3.0
         assert sent_velocity.down_m_s == -1.0
@@ -789,8 +794,9 @@ class TestErrorHandling:
 
             result = await flight_tools.set_velocity(duration_s=0.1)
 
-            assert result["success"] is False
-            assert "Not connected" in result["error"]
+            # Wave 1 error envelope format
+            assert result.get("isError") is True
+            assert "Not connected" in result.get("error", {}).get("message", "")
 
     async def test_general_exception_handling(self, flight_tools, mock_drone):
         """Test graceful handling of unexpected errors.
@@ -800,7 +806,7 @@ class TestErrorHandling:
             handles them without crashing and returns error information.
 
         EXPECTED OUTCOMES:
-            - success=False or error field present
+            - isError=True or error field present
             - No unhandled exception raised
 
         HOW IT WORKS:
@@ -819,8 +825,8 @@ class TestErrorHandling:
             # which returns 0, and set_velocity reports failure
             result = await flight_tools.set_velocity(duration_s=0.1)
 
-            # Should report failure but not crash
-            assert result["success"] is False or "error" in result
+            # Should report failure but not crash (Wave 1 error envelope format)
+            assert result.get("isError") is True or "error" in result
 
 
 # =============================================================================

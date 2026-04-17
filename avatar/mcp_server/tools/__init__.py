@@ -496,4 +496,16 @@ __all__ = [
     "PositionToolsConfig",       # (Cfg) Position tools configuration
     "set_yaw",                   # (F) Command yaw angle (heading)
     "SetYawInput",               # (Schema) Input validation for yaw
+
+    # -----------------------------------------------------------------------------
+    # PREFLIGHT TOOLS (7 exports)
+    # Safety validation checks before flight
+    # -----------------------------------------------------------------------------
+    "run_preflight",             # (F) Run preflight checks and return results
+    "handle_run_preflight",      # (F) MCP handler for preflight tool
+    "RunPreflightInput",         # (Schema) Input validation for preflight
+    "PreflightResult",           # (Schema) Output schema for preflight results
+    "run_preflight_tool_schema", # (F) JSON schema for MCP registration
+    "run_preflight_output_schema", # (F) JSON schema for MCP registration
+    "run_preflight_annotations", # (F) MCP tool annotations
 ]
