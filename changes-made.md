@@ -1,3 +1,32 @@
+## 2026-04-16 Wave 0 Task 7 - MCP Tool Count Introspection
+
+**Task:** `scripts/validate_mcp_server.py` introspected tool count and `--expected-count`
+
+**Changes:**
+
+1. **Added** `tests/test_validate_mcp_server_tool_count.py`:
+   - `test_tool_definitions_count_matches_server_source()` - verifies 26 tools
+   - `test_validate_script_accepts_expected_count()` - verifies argparse works
+
+2. **Modified** `avatar/mcp_server/server.py`:
+   - Added module-level `avatar_mcp_tool_definitions()` function (returns list of 26 types.Tool)
+   - Refactored `handle_list_tools()` to call `avatar_mcp_tool_definitions()`
+
+3. **Modified** `scripts/validate_mcp_server.py`:
+   - Added `--expected-count` argparse argument (default: 26)
+   - Updated `check_tools_available()` to use `avatar_mcp_tool_definitions()`
+   - Made `check_mcp_configuration()` non-fatal (returns True when settings.json missing)
+
+4. **Modified** `avatar/mcp_server/__init__.py`:
+   - Exported `avatar_mcp_tool_definitions` from package level
+   - Added to `__all__` list
+
+**Verification:**
+- `python3 scripts/validate_mcp_server.py --expected-count 26` should exit 0
+- `python3 -m pytest tests/test_validate_mcp_server_tool_count.py -v` should pass
+
+---
+
 ## 2026-04-13 Project Avatar SITL-To-Hardware Build Status
 
 - MCP stdio discovery: PASS

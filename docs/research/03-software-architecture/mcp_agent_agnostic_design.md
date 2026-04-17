@@ -1,7 +1,83 @@
 # Project Avatar: Agent-Agnostic MCP Architecture
 
-**Version**: 2.1 (April 2026)  
+**Version**: 2.2 (April 2026)  
+**Status**: Phase 0.5 Complete - SITL Implementation  
 **Purpose**: Explain how the drone MCP server works with ANY AI agent supporting the Model Context Protocol
+
+> **Note on Documentation**: This document describes the agent-agnostic architecture. For comprehensive code documentation including module references, API details, and implementation guides, see `docs/analysis/` and `docs/solutions/` directories, as well as detailed docstrings throughout the codebase.
+
+---
+
+## Current File Structure
+
+The agent-agnostic MCP server is implemented in the following structure:
+
+```
+Project-Avatar/
+├── avatar/
+│   ├── mcp_server/           # MCP server implementation
+│   │   ├── __init__.py       # Package initialization
+│   │   ├── __main__.py       # Entry point: python -m avatar.mcp_server
+│   │   ├── server.py         # Main MCP server with tool definitions
+│   │   ├── protocols.py      # Communication protocols
+│   │   ├── confirmation.py   # Progressive confirmation system
+│   │   ├── compat.py         # Backward compatibility layer
+│   │   └── tools/            # Individual tool implementations
+│   │       ├── __init__.py
+│   │       ├── arm_takeoff.py
+│   │       ├── goto.py
+│   │       ├── set_velocity.py
+│   │       ├── fly_body_offset.py
+│   │       ├── hold.py
+│   │       ├── land.py
+│   │       ├── rtl.py
+│   │       ├── abort.py
+│   │       └── get_status.py
+│   ├── core/                 # Core utilities
+│   │   ├── decorators.py     # Flight safety decorators
+│   │   └── context_managers.py # Resource management
+│   ├── mav/                  # MAVSDK integration
+│   │   ├── connection_manager.py
+│   │   ├── guardian_async.py # Safety monitoring
+│   │   ├── protocols.py
+│   │   └── px4_parameters.py
+│   ├── vision/               # Vision pipeline
+│   │   ├── mock_detector.py
+│   │   ├── gazebo_camera_client.py
+│   │   └── state_string.py
+│   ├── utils/                # Utilities
+│   │   └── flight_recorder.py
+│   └── config/               # Configuration files
+│       ├── sitl.yaml
+│       └── hardware.yaml
+├── scripts/                  # Demo and validation scripts
+│   ├── demo_cinematic_shots.py
+│   ├── demo_acrobatics.py
+│   ├── demo_tracking.py
+│   └── validate_mcp_server.py
+├── tests/                    # Comprehensive test suite
+│   ├── tools/                # Tool-specific tests
+│   ├── mav/                  # MAVSDK tests
+│   ├── mcp_server/           # Server integration tests
+│   ├── e2e/                  # End-to-end tests
+│   └── property/             # Property-based tests
+├── docs/                     # Documentation
+│   ├── analysis/             # Architecture analysis
+│   ├── solutions/            # Implementation guides
+│   └── sitl_setup.md         # SITL setup instructions
+└── research/                 # Research and planning documents
+    └── 03-software-architecture/
+        └── mcp_agent_agnostic_design.md (this file)
+```
+
+**To run the MCP server**:
+```bash
+# From project root
+python -m avatar.mcp_server
+
+# Or with validation
+python scripts/validate_mcp_server.py
+```
 
 ---
 
@@ -91,16 +167,16 @@ Project Avatar is designed to work with **any MCP-compatible AI agent**, not jus
 
 **Setup**:
 ```bash
-# Add MCP server to Claude Code
+# Add MCP server to Claude Code (run from project root)
 claude mcp add drone-server \
-  --command "python /path/to/avatar/scripts/run_mcp_server.py" \
+  --command "python -m avatar.mcp_server" \
   --transport stdio
 ```
 
 **Usage**:
 ```
 User: "Drone, take off to 10 meters"
-Claude: "I'll help you take off. Calling arm_and_takeoff(altitude_m=10)..."
+Claude: "I'll help you take off. Calling arm_takeoff(altitude_m=10)..."
 [Calls MCP tool]
 [Returns telemetry]
 Claude: "Successfully armed and took off. Current altitude: 10.2m"
@@ -121,10 +197,10 @@ Claude: "Successfully armed and took off. Current altitude: 10.2m"
 {
   "name": "drone-control",
   "mcp_server": {
-    "command": "python /path/to/avatar/scripts/run_mcp_server.py",
+    "command": "python -m avatar.mcp_server",
     "transport": "stdio"
   },
-  "tools": ["arm_and_takeoff", "goto_gps", "land", "capture_frame"]
+  "tools": ["arm_takeoff", "goto", "land", "capture_frame"]
 }
 ```
 
@@ -145,7 +221,7 @@ Sisyphus: "Executing orbit mission..."
 ```bash
 # Configure in hermes.toml
 [mcp.servers.drone]
-command = "python /path/to/avatar/scripts/run_mcp_server.py"
+command = "python -m avatar.mcp_server"
 transport = "stdio"
 ```
 
@@ -153,7 +229,7 @@ transport = "stdio"
 ```bash
 $ hermes ask "Take off and hover at 15m"
 Hermes: Planning mission...
-Hermes: Executing arm_and_takeoff(altitude_m=15)
+Hermes: Executing arm_takeoff(altitude_m=15)
 Hermes: ✓ Hovering at 15.1m
 ```
 
@@ -183,12 +259,12 @@ from mcp import ClientSession, StdioServerParameters
 # Connect to drone MCP server
 server_params = StdioServerParameters(
     command="python",
-    args=["/path/to/avatar/scripts/run_mcp_server.py"]
+    args=["-m", "avatar.mcp_server"]
 )
 
 async with ClientSession(server_params) as session:
     # Call any tool
-    result = await session.call_tool("arm_and_takeoff", {"altitude_m": 10})
+    result = await session.call_tool("arm_takeoff", {"altitude_m": 10})
     print(result)
 ```
 
@@ -200,27 +276,26 @@ All agents use the **same tool interface**:
 
 ### Flight Control Tools
 ```python
-arm_and_takeoff(altitude_m: float) -> FlightResult
-goto_gps(lat: float, lon: float, alt_m: float, speed_ms: float) -> FlightResult
-set_velocity(vx: float, vy: float, vz: float, yaw_rate: float) -> FlightResult
+arm_takeoff(altitude_m: float) -> FlightResult
+goto(latitude: float, longitude: float, altitude_m: float, speed_m_s: float = 5.0) -> FlightResult
+set_velocity(vx: float, vy: float, vz: float, yaw_rate: float = 0.0) -> FlightResult
 fly_body_offset(forward_m: float, right_m: float, up_m: float) -> FlightResult
-hold_position(seconds: float = 0) -> FlightResult
+hold() -> FlightResult
 land() -> FlightResult
 rtl() -> FlightResult  # Return to Launch
-abort_mission(reason: str) -> FlightResult
+abort(reason: str) -> FlightResult
 ```
 
 ### Telemetry & Status Tools
 ```python
-get_telemetry() -> TelemetryData
-get_mission_status() -> MissionState
-get_battery_status() -> BatteryInfo
+get_status() -> TelemetryData  # Includes position, battery, flight mode, health
+get_drone_state() -> StateString  # Formatted state string for LLM consumption
 ```
 
 ### Vision Tools
 ```python
-capture_frame() -> Image  # Returns current camera frame
-get_detected_objects() -> List[DetectedObject]
+capture_frame() -> Image  # Returns current camera frame (Gazebo/SITL)
+get_detected_objects() -> List[DetectedObject]  # YOLO detections
 ```
 
 ### Planning Tools (Optional LLM)
@@ -249,7 +324,7 @@ The **agent** handles user interaction; the **server** provides data:
    User: "yes"
    
 4. EXECUTION (Server performs)
-   Server: arm_and_takeoff() → goto_gps() → [orbit logic]
+   Server: arm_takeoff() → goto() → [orbit logic]
    
 5. MONITORING (Server streams, Agent displays)
    Server: Telemetry updates
@@ -362,29 +437,29 @@ Agent Disconnected:
 
 async def test_drone_mcp():
     """Test basic connectivity and tool availability."""
-    
+
     # 1. Connect to server
     session = await connect_to_drone_server()
-    
+
     # 2. List available tools
     tools = await session.list_tools()
-    assert "arm_and_takeoff" in tools
-    assert "get_telemetry" in tools
-    
+    assert "arm_takeoff" in tools
+    assert "get_status" in tools
+
     # 3. Test telemetry (read-only)
-    telemetry = await session.call_tool("get_telemetry")
-    assert telemetry.battery_percent > 0
-    
-    # 4. Test mission planning
+    status = await session.call_tool("get_status")
+    assert status.battery_percent > 0
+
+    # 4. Test mission planning (if LLM configured)
     plan = await session.call_tool("plan_mission", {
         "natural_language_request": "Take off to 10m"
     })
-    assert plan.steps[0].tool == "arm_and_takeoff"
-    
+    assert plan.steps[0].tool == "arm_takeoff"
+
     # 5. Test frame capture (if vision enabled)
     frame = await session.call_tool("capture_frame")
     assert frame.width > 0
-    
+
     print("✓ All tests passed - MCP server compatible")
 ```
 
@@ -434,11 +509,11 @@ except LLMUnavailable as e:
 
 ### Issue: Agent can't connect to MCP server
 ```bash
-# Check server is running
-python scripts/run_mcp_server.py --verbose
+# Check server is running (from project root)
+python -m avatar.mcp_server --verbose
 
 # Test connection manually
-python -m mcp.client.cli connect stdio python scripts/run_mcp_server.py
+python -m mcp.client.cli connect stdio python -m avatar.mcp_server
 ```
 
 ### Issue: Tools not appearing in agent
@@ -497,5 +572,5 @@ As MCP adoption grows, Project Avatar will work with:
 
 ---
 
-*Last Updated: 2026-04-11*  
-*Architecture Version: 2.1 - Agent-Agnostic MCP*
+*Last Updated: 2026-04-12*  
+*Architecture Version: 2.2 - Phase 0.5 Complete*

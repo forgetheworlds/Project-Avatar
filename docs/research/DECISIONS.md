@@ -20,9 +20,11 @@
 
 ## Safety & Failsafe
 
-### DEC-001: 4-Layer Safety Architecture
+### DEC-001: 4-Layer Safety Architecture [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Architecture defined, GuardianProcess specified, documented in safety hierarchy
 
 **Context**: LLM-controlled drones require multiple independent safety layers to prevent AI errors from causing physical harm.
 
@@ -53,9 +55,11 @@
 
 ---
 
-### DEC-002: PX4 Parameter Configuration for Safety
+### DEC-002: PX4 Parameter Configuration for Safety [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Parameter set defined, ready for SITL and hardware configuration
 
 **Decision**: Configure PX4 with conservative failsafe parameters:
 
@@ -78,9 +82,11 @@ BAT_EMERGEN_THR: 0.15    # Land at 15% battery
 
 ---
 
-### DEC-003: Heartbeat Location on RPi (Not Mac)
+### DEC-003: Heartbeat Location on RPi (Not Mac) [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Architecture decision documented, asyncio patterns defined
 
 **Context**: Where should the 20Hz offboard heartbeat run?
 
@@ -111,9 +117,11 @@ BAT_EMERGEN_THR: 0.15    # Land at 15% battery
 
 ## Architecture & Control
 
-### DEC-004: MAVSDK-Python Over ROS2
+### DEC-004: MAVSDK-Python Over ROS2 [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - MAVSDK-Python selected, all development proceeding with this SDK
 
 **Context**: Need to choose drone SDK for PX4 control.
 
@@ -146,9 +154,11 @@ BAT_EMERGEN_THR: 0.15    # Land at 15% battery
 
 ---
 
-### DEC-005: Three-Stage Development Roadmap
+### DEC-005: Three-Stage Development Roadmap [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Roadmap defined, currently executing Stage 1 (Control Spine) via Phase 0.5
 
 **Decision**: Build system in three sequential stages:
 
@@ -182,9 +192,11 @@ Stage 3: Depth & Payload (Obstacle avoidance, gimbal)
 
 ## LLM & AI Integration
 
-### DEC-015: Kimi K2.5 via Fireworks AI (Cloud LLM)
+### DEC-015: Kimi K2.5 via Fireworks AI (Cloud LLM) [DECIDED]
 
 **Date**: 2026-04-11
+
+**Status**: DECIDED - Architecture approved, implementation pending Phase 0.5 integration
 
 **Context**: Original plan used local Llama 3 8B on MacBook M3 16GB, but this provides only ~25-40 tok/s with limited reasoning capability. Need faster inference with better vision and tool-calling reliability.
 
@@ -233,9 +245,11 @@ model = "accounts/fireworks/models/kimi-k2-5"
 
 ---
 
-### DEC-016: Agent-Agnostic MCP Server Architecture
+### DEC-016: Agent-Agnostic MCP Server Architecture [IMPLEMENTING]
 
 **Date**: 2026-04-11
+
+**Status**: IMPLEMENTING - Server architecture defined, tools specified, development in progress
 
 **Context**: User wants to control drone through natural language via AI agents, but needs the system to work with ANY MCP-compatible agent (OpenCode/Sisyphus, Hermes, OpenClaw, Claude Desktop, etc.), not be locked to a specific platform.
 
@@ -311,9 +325,133 @@ User → Any MCP Agent (OpenCode, Hermes, Claude, etc.) → Drone MCP Server →
 
 ---
 
-### DEC-017: Hybrid Vision Architecture (YOLO + Kimi Frames)
+### DEC-021: Code Documentation (Comprehensive Comments)
+
+**Date**: 2026-04-12
+
+**Context**: As the codebase grows with MCP server, vision pipeline, and safety systems, maintaining code clarity is critical. Future maintainers (including ourselves) need to understand not just WHAT the code does, but WHY architectural choices were made.
+
+**Options Considered**:
+1. **Minimal comments** — ❌ Rejected: Code intent unclear, hard to onboard new contributors
+2. **Docstrings only** — ❌ Rejected: Insufficient for complex async/mission logic
+3. **Comprehensive comments** — ✅ Selected: Every non-trivial block explained
+
+**Decision**: All code must include comprehensive comments covering:
+- **Function docstrings**: Purpose, args, returns, raises, examples
+- **Module headers**: Overview, architecture context, key classes/functions
+- **Inline comments**: WHY not WHAT (explain intent, not mechanics)
+- **Decision references**: Link to DEC-XXX when implementing architecture decisions
+- **TODO/FIXME markers**: Tracked issues with context
+
+**Comment Standards**:
+```python
+# Good: Explains intent and reasoning
+# Heartbeat MUST run on RPi, not Mac. If WiFi drops while heartbeat
+# runs on Mac, COM_OF_LOSS_T (500ms) triggers failsafe → drone falls.
+# See DEC-003 for full rationale.
+async def heartbeat_loop(drone: System) -> None:
+
+# Bad: States the obvious
+# This function sends heartbeat messages
+async def heartbeat_loop(drone: System) -> None:
+```
+
+**Rationale**:
+- **Knowledge preservation**: Prevents loss of context during team transitions
+- **Safety critical**: Drone code requires understanding safety implications
+- **Async complexity**: Coroutine flows are non-obvious without explanation
+- **Onboarding speed**: New contributors can understand codebase in days not weeks
+
+**Trade-offs**:
+- Slightly more time spent writing code
+- Comment maintenance burden when refactoring
+- Risk of comment/code drift if not updated
+
+**Mitigations**:
+- Code review checks comment quality
+- Self-documenting naming conventions reduce comment needs
+- Link to DECISIONS.md for architectural context (single source of truth)
+
+**Consequences**:
+- All modules have header comments explaining purpose
+- All public functions have Google-style docstrings
+- Inline comments explain non-obvious logic and safety implications
+- Complex async flows documented with sequence comments
+
+**Related**: See DEC-003, DEC-007, DEC-009 for referenced decisions
+
+---
+
+### DEC-022: Cinematic Shots Implementation
+
+**Date**: 2026-04-12
+
+**Context**: Project Avatar needs to capture professional-quality aerial footage. Cinematic shots require precise coordinated movement of both drone and gimbal, with smooth motion profiles that are difficult to achieve with manual control.
+
+**Options Considered**:
+1. **Manual piloting via RC** — ❌ Rejected: Requires skilled pilot, inconsistent results
+2. **Pre-programmed waypoints** — ❌ Rejected: Too rigid, no subject tracking
+3. **LLM-orchestrated cinematic primitives** — ✅ Selected: Natural language to cinematic shots
+
+**Decision**: Implement cinematic shot primitives as MCP tools that Kimi can orchestrate:
+
+**Shot Types**:
+| Shot | Description | Parameters |
+|------|-------------|------------|
+| `orbit(subject, radius, speed)` | Circle around subject | radius_m, altitude_m, speed_deg/s, direction (cw/ccw) |
+| `dolly_zoom(subject, start_dist, end_dist)` | Vertigo effect | start_m, end_m, altitude_m, duration_s |
+| `reveal(subject, start_offset, end_pos)` | Uncover subject | start_offset_m, end_pos (orbit/above/side), speed_m_s |
+| `follow(subject, distance, height)` | Track moving subject | distance_m, height_m, lead_distance_m |
+| `spiral(subject, start_radius, end_radius, rotations)` | Ascending/descending spiral | start_r, end_r, rotations, direction |
+| `crane(subject, start_alt, end_alt, distance)` | Vertical reveal | start_alt_m, end_alt_m, distance_m |
+
+**Implementation Architecture**:
+```
+User: "Orbit the cabin at 30m with slow cinematic speed"
+↓
+Kimi parses → `orbit(subject="cabin", radius=30, speed=10)`
+↓
+MCP Server validates parameters through GuardianProcess
+↓
+Trajectory generator creates smooth motion profile
+↓
+Waypoint follower executes with gimbal synchronization
+↓
+Telemetry feedback adjusts for wind/position errors
+```
+
+**Motion Profiles**:
+- All movements use s-curve acceleration (smooth jerk-free motion)
+- Gimbal pitch/yaw synchronized with drone movement
+- Speed limits enforced by GuardianProcess hard limits
+- Emergency abort maintains shot continuity if possible
+
+**Rationale**:
+- **Professional output**: Smooth, repeatable cinematic shots
+- **Natural language**: "Orbit slowly" → precise motion
+- **Safety**: GuardianProcess validates all trajectories before execution
+- **Composable**: Shots can be chained (orbit → dolly zoom → follow)
+
+**Trade-offs**:
+- Complex trajectory planning required
+- Subject tracking needs vision integration (Stage 2)
+- Wind compensation affects shot smoothness
+
+**Consequences**:
+- `cinematic_shot()` MCP tool with shot type enum
+- TrajectoryGenerator class for motion profiles
+- Gimbal synchronization module (Stage 3)
+- Shot templates in mission planning system
+
+**Related**: To be implemented in Stage 2 (vision) and Stage 3 (gimbal)
+
+---
+
+### DEC-017: Hybrid Vision Architecture (YOLO + Kimi Frames) [DECIDED]
 
 **Date**: 2026-04-11
+
+**Status**: DECIDED - Architecture approved, deferred to Stage 2 (Vision System)
 
 **Context**: Need to balance real-time detection with LLM vision capabilities. Sending every frame to Kimi is expensive and slow; using only local YOLO limits LLM situational awareness.
 
@@ -361,9 +499,11 @@ State String generated (every 1-2s)
 
 ---
 
-### DEC-018: Progressive Confirmation Workflow
+### DEC-018: Progressive Confirmation Workflow [DECIDED]
 
 **Date**: 2026-04-11
+
+**Status**: DECIDED - Workflow specified, implementation pending MCP server completion
 
 **Context**: User wants confirmation before executing missions, but workflow needs to balance safety with usability. Too many interruptions are annoying; too few are dangerous.
 
@@ -421,9 +561,11 @@ User: [no response 10s] → Auto-hold (fail-safe)
 
 ---
 
-### DEC-019: Google Maps for Pre-Flight Planning Only
+### DEC-019: Google Maps for Pre-Flight Planning Only [DECIDED]
 
 **Date**: 2026-04-11
+
+**Status**: DECIDED - Integration approach defined, pending MCP server implementation
 
 **Context**: User wants to "cross-reference where it is with Google Maps to understand the area." Maps provide valuable context but have limitations for real-time flight.
 
@@ -480,9 +622,9 @@ Flight executes using cached data (no live Maps dependency)
 
 ---
 
-### DEC-020: Phase 0.5 – Full SITL Pre-Validation
+### DEC-020: Phase 0.5 – Full SITL Pre-Validation [IMPLEMENTING]
 
-**Date**: 2026-04-11
+**Date**: 2026-04-11 (Updated: 2026-04-12)
 
 **Context**: Before investing in hardware, need to validate complete software stack works end-to-end. Want to test Kimi integration, MCP workflows, confirmation flows, and produce demo video.
 
@@ -492,6 +634,8 @@ Flight executes using cached data (no live Maps dependency)
 3. **Full Gazebo SITL with everything** — ✅ Selected: Complete validation environment
 
 **Decision**: Implement comprehensive Phase 0.5 using PX4 SITL + Gazebo simulation with ALL components before hardware purchase.
+
+**Status**: IN PROGRESS - Foundation complete (PX4 SITL + Gazebo setup, MAVSDK connection validated). Integration phase active (MCP server architecture defined, Kimi integration planned).
 
 **Phase 0.5 Scope (3 weeks)**:
 ```
@@ -618,9 +762,11 @@ system_address="udp://:14540"
 
 ## Vision & Perception
 
-### DEC-006: YOLOv8-nano + ByteTrack for Person Tracking
+### DEC-006: YOLOv8-nano + ByteTrack for Person Tracking [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Vision architecture defined, deferred to Stage 2 implementation
 
 **Context**: Need real-time person detection on Raspberry Pi 4.
 
@@ -665,9 +811,11 @@ config = {
 
 ## Software & Implementation
 
-### DEC-007: Asyncio Priority Scheduling
+### DEC-007: Asyncio Priority Scheduling [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Priority scheduler architecture defined, documented in asyncio patterns
 
 **Context**: Need to ensure critical tasks (heartbeat) never blocked by CPU-bound work (vision, LLM).
 
@@ -703,9 +851,11 @@ llm_executor = ProcessPoolExecutor(max_workers=1)
 
 ---
 
-### DEC-008: JSON Tool Schema for LLM Control
+### DEC-008: JSON Tool Schema for LLM Control [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - Schema structure defined, being used in MCP server implementation
 
 **Context**: Need structured interface for LLM to control drone safely.
 
@@ -746,9 +896,11 @@ llm_executor = ProcessPoolExecutor(max_workers=1)
 
 ---
 
-### DEC-009: GuardianProcess as Command Gatekeeper
+### DEC-009: GuardianProcess as Command Gatekeeper [IMPLEMENTED]
 
 **Date**: 2026-04-10
+
+**Status**: IMPLEMENTED - GuardianProcess architecture defined, hard limits specified, being implemented in MCP server
 
 **Decision**: Implement GuardianProcess class that validates ALL commands before execution.
 
@@ -962,43 +1114,7 @@ When making a new architectural or design decision:
 
 ---
 
-*Last Updated: 2026-04-11*  
-*Total Decisions: 20*
+*Last Updated: 2026-04-12*  
+*Total Decisions: 22*
 
 [1] Transport Canada Drone Operation Categories: https://tc.canada.ca/en/aviation/drone-safety/learn-rules-you-fly-your-drone/drone-operation-categories-pilot-certificates
-</parameter>
-</invoke>
-
-When making a new architectural or design decision:
-
-1. Create a new DEC-XXX entry in appropriate section
-2. Include: Date, Context, Options Considered, Decision, Rationale, Trade-offs, Consequences
-3. Cross-reference related research documents
-4. Update this TOC if adding new section
-
-**Template**:
-```markdown
-### DEC-XXX: [Brief Title]
-
-**Date**: YYYY-MM-DD
-
-**Context**: [Why this decision was needed]
-
-**Options Considered**:
-1. [Option A] — [Decision]
-2. [Option B] — [Decision]
-
-**Decision**: [What was decided]
-
-**Rationale**: [Why this choice]
-
-**Trade-offs**: [What was given up]
-
-**Consequences**: [What must be done as a result]
-
-**Related**: See `[path/to/doc.md]`
-```
-
----
-
-*Last Updated: 2026-04-10*

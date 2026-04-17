@@ -1,6 +1,9 @@
 # Quick Reference: Connecting Agents to Project Avatar
 
+**Status**: Phase 0.5 Complete - Software stack validated in SITL simulation  
 **One-liner**: Install the MCP server, configure your agent, start flying.
+
+> **Note**: All implementation files include comprehensive code comments for maintainability and clarity.
 
 ---
 
@@ -9,7 +12,7 @@
 ```bash
 # 1. Install MCP server
 claude mcp add drone-server \
-  --command "python /path/to/avatar/scripts/run_mcp_server.py" \
+  --command "python -m avatar.mcp_server" \
   --transport stdio
 
 # 2. Start Claude Code
@@ -32,8 +35,8 @@ cat > ~/.opencode/skills/drone-control/skill.json << 'EOF'
   "name": "drone-control",
   "version": "2.0",
   "mcp_server": {
-    "command": "python /path/to/avatar/scripts/run_mcp_server.py",
-    "args": [],
+    "command": "python",
+    "args": ["-m", "avatar.mcp_server"],
     "transport": "stdio"
   }
 }
@@ -58,21 +61,21 @@ async def main():
     # Connect to drone MCP server
     server = StdioServerParameters(
         command="python",
-        args=["/path/to/avatar/scripts/run_mcp_server.py"]
+        args=["-m", "avatar.mcp_server"]
     )
-    
+
     async with ClientSession(server) as session:
         # List tools
         tools = await session.list_tools()
         print(f"Available tools: {[t.name for t in tools]}")
-        
+
         # Get telemetry
         telemetry = await session.call_tool("get_telemetry")
         print(f"Battery: {telemetry.battery_percent}%")
-        
+
         # Take off
         result = await session.call_tool(
-            "arm_and_takeoff", 
+            "arm_and_takeoff",
             {"altitude_m": 10}
         )
         print(result)
@@ -103,15 +106,14 @@ export DRONE_CONFIRMATION_TIMEOUT="10"     # Seconds to wait for user confirm
 ## Testing Connection
 
 ```bash
-# Universal test (works with any MCP client)
-python scripts/test_agent_connection.py
+# Run the comprehensive test suite
+python -m pytest avatar/tests/test_mcp_tools.py -v
 
 # Expected output:
-# ✓ MCP server reachable
-# ✓ Tools available: 15
-# ✓ Telemetry readable
-# ✓ Vision working
-# ✓ Planning functional
+# test_mcp_tools.py::test_telemetry_tools PASSED
+# test_mcp_tools.py::test_flight_tools PASSED
+# test_mcp_tools.py::test_vision_tools PASSED
+# test_mcp_tools.py::test_safety_tools PASSED
 # All tests passed!
 ```
 
@@ -137,15 +139,15 @@ python scripts/test_agent_connection.py
 **"Agent can't see drone tools"**
 ```bash
 # Restart MCP server
-pkill -f run_mcp_server.py
-python scripts/run_mcp_server.py
+pkill -f "avatar.mcp_server"
+python -m avatar.mcp_server
 ```
 
 **"Connection refused"**
 ```bash
-# Check MAVLink
-# Is RPi connected? Check network.
-ping raspberrypi.local
+# Check MAVLink connection
+# Is SITL running? Check the PX4 console.
+# For hardware: ping raspberrypi.local
 ```
 
 **"Kimi not responding"**
@@ -157,8 +159,8 @@ echo $FIREWORKS_API_KEY
 
 **"No vision"**
 ```bash
-# Check camera stream
-python -c "from avatar.vision.video_client import test_stream; test_stream()"
+# Check camera stream (SITL)
+python -c "from avatar.vision.gazebo_camera_client import main; main()"
 ```
 
 ---
@@ -166,23 +168,26 @@ python -c "from avatar.vision.video_client import test_stream; test_stream()"
 ## Architecture Recap
 
 ```
-You → [Any MCP Agent] → Drone MCP Server → Drone
-              ↓
+You -> [Any MCP Agent] -> Drone MCP Server -> Drone
+              |
          [Optional: Kimi LLM for planning]
 ```
 
 **Key Point**: The drone doesn't care which agent you use.
 
+**Phase 0.5 Status**: All components validated in SITL simulation. Hardware transition requires only changing the MAVLink connection string from `udp://:14540` to the hardware serial port.
+
 ---
 
 ## Next Steps
 
-1. **Install**: `python scripts/install_mcp_server.py`
-2. **Configure**: Set `FIREWORKS_API_KEY` (optional, for Kimi)
+1. **Setup SITL**: See `docs/sitl_setup.md` for PX4 + Gazebo installation
+2. **Configure**: Set `FIREWORKS_API_KEY` (optional, for Kimi LLM features)
 3. **Connect**: Use your preferred agent (Claude Code, OpenCode, etc.)
-4. **Test**: `arm_and_takeoff(altitude_m=5)` in safe area
+4. **Test**: `arm_and_takeoff(altitude_m=5)` in simulation
 5. **Fly**: Natural language missions!
 
 ---
 
-**Documentation**: See `mcp_agent_agnostic_design.md` for full details.
+**Documentation**: See `mcp_agent_agnostic_design.md` for full architecture details.  
+**Implementation**: All source files include comprehensive inline documentation.

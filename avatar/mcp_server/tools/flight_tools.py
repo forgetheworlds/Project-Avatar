@@ -438,7 +438,7 @@ class FlightTools:
         self.hard_limits = hard_limits or HardLimits()
         self.guardian = GuardianProcess(self.hard_limits)
         self.state_machine = state_machine or FlightStateMachine()
-        self._drone: Optional["DroneConnection"] = None
+        self._drone: Optional[Any] = None  # MAVSDK System instance
         self._connected = False
         self._heartbeat_task: Optional[asyncio.Task[None]] = None
         self.offboard_streamer = OffboardVelocityStreamer(rate_hz=20.0)
@@ -483,19 +483,8 @@ class FlightTools:
                     suggested_action="Start PX4 SITL or connect hardware",
                 )
 
-            # Wrap MAVSDK System in DroneConnection for compatibility
-            if self._drone is None:
-                from avatar.mcp_server.compat import DroneConnection
-                connection_config = ConnectionConfig(
-                    system_address=self.config.system_address,
-                    max_retries=self.config.max_retries,
-                    retry_delay_s=self.config.retry_delay_s,
-                    health_timeout_s=self.config.health_timeout_s,
-                )
-                self._drone = DroneConnection(connection_config)
-                self._drone.drone = drone
-                self._drone._connected = True
-
+            # Store MAVSDK System directly (no DroneConnection wrapper)
+            self._drone = drone
             self._connected = True
 
             # Start heartbeat background task for GuardianProcess
@@ -512,6 +501,36 @@ class FlightTools:
                 recoverable=True,
                 suggested_action="Check drone connection and retry",
             )
+
+    async def _wait_for_drone_health(self, timeout_s: float = 30.0) -> bool:
+        """Wait for drone health checks (GPS lock, home position).
+
+        Args:
+            timeout_s: Maximum time to wait for health checks.
+
+        Returns:
+            True if healthy, False if timeout or error.
+        """
+        if self._drone is None:
+            return False
+
+        try:
+            import asyncio
+            async with asyncio.timeout(timeout_s):
+                # Wait for GPS fix
+                async for health in self._drone.telemetry.health():
+                    if health.is_global_position_valid and health.is_home_position_ok:
+                        logger.info("Drone health checks passed: GPS lock and home position OK")
+                        return True
+                    logger.debug(f"Waiting for health: gps={health.is_global_position_valid}, home={health.is_home_position_ok}")
+        except asyncio.TimeoutError:
+            logger.warning(f"Health check timed out after {timeout_s}s")
+            return False
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return False
+
+        return False
 
     async def _heartbeat_loop(self) -> None:
         """Background task to update GuardianProcess heartbeat at 20Hz.
@@ -647,7 +666,7 @@ class FlightTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -655,11 +674,12 @@ class FlightTools:
                 suggested_action="Establish connection before flight operations",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
 
         # Wait for health checks - GPS lock and home position required
         logger.info("Waiting for drone health checks...")
-        health_ok = await self._drone.wait_for_health()
+        # Wait for health checks - GPS lock and home position required
+        health_ok = await self._wait_for_drone_health()
         if not health_ok:
             return to_error_envelope(
                 ErrorCode.PREFLIGHT_BLOCKED,
@@ -852,7 +872,7 @@ class FlightTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -860,7 +880,7 @@ class FlightTools:
                 suggested_action="Establish connection before flight operations",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
 
         # Get current position and altitude from telemetry
         current_abs_alt = None
@@ -978,7 +998,7 @@ class FlightTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -986,7 +1006,7 @@ class FlightTools:
                 suggested_action="Establish connection before flight operations",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
 
         try:
             logger.info("Initiating landing...")
@@ -1065,7 +1085,7 @@ class FlightTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -1073,7 +1093,7 @@ class FlightTools:
                 suggested_action="Establish connection before flight operations",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
 
         # Update heartbeat to show activity
         self.guardian.update_heartbeat()
@@ -1153,7 +1173,7 @@ class FlightTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -1161,7 +1181,7 @@ class FlightTools:
                 suggested_action="Establish connection before flight operations",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
 
         abort_reason = reason or "User requested abort"
 
@@ -1296,12 +1316,12 @@ class FlightTools:
             if conn_error:
                 return conn_error
 
-            if self._drone is None or self._drone.drone is None:
+            if self._drone is None:
                 return {"success": False, "error": "Drone not connected"}
 
             try:
                 # Get single position reading from MAVSDK
-                async for position in self._drone.drone.telemetry.position():
+                async for position in self._drone.telemetry.position():
                     initial_lat = position.latitude_deg
                     initial_lon = position.longitude_deg
                     break  # Single reading sufficient
@@ -1323,9 +1343,9 @@ class FlightTools:
             )
 
         # Send hold command to drone if connected
-        if self._connected and self._drone and self._drone.drone:
+        if self._connected and self._drone:
             try:
-                await self._drone.drone.action.hold()
+                await self._drone.action.hold()
                 logger.info("Hold command sent to drone")
             except Exception as e:
                 logger.warning(f"Could not send hold command: {e}")
@@ -1510,7 +1530,7 @@ class FlightTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -1518,7 +1538,7 @@ class FlightTools:
                 suggested_action="Establish connection before flight operations",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
 
         try:
             # Get current position and yaw from telemetry
@@ -1900,8 +1920,9 @@ class FlightTools:
             - Clears _drone reference
             - Stops heartbeat task
         """
-        if self._drone:
-            await self._drone.disconnect()
+        # Use ConnectionManager for disconnect
+        cm = ConnectionManager()
+        await cm.disconnect()
         self._connected = False
         self._drone = None
 

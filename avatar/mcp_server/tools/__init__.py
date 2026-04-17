@@ -315,6 +315,70 @@ from avatar.mcp_server.tools.meta_tools import (
 )
 
 # ==============================================================================
+# CATEGORY 8: ORCHESTRATOR TOOLS - Complex multi-step operations
+# ==============================================================================
+# Orchestrators coordinate multiple primitive operations into sophisticated
+# mission patterns. They combine vision, flight, and tracking subsystems.
+#
+# Available orchestrators:
+# - orbit_subject_vision: Orbit around visually-detected subject
+# - track_bbox: Track object identified by bounding box with Kalman prediction
+# ==============================================================================
+
+from avatar.mcp_server.tools.orchestrators import (
+    orbit_subject_vision,    # Orbit around vision-detected subject
+    OrbitSubjectVisionInput, # Input schema for orbit orchestrator
+    ORBIT_SUBJECT_VISION_TOOL, # Tool registration metadata
+    track_bbox,              # Track object via bounding box with Kalman filter
+    TrackBboxInput,          # Input schema for track_bbox orchestrator
+    TRACK_BBOX_TOOL,         # Tool registration metadata
+)
+
+# ==============================================================================
+# CATEGORY 9: PRIMITIVE TOOLS - Low-level position control
+# ==============================================================================
+# Primitive tools provide direct control over drone position using NED frame.
+# These are building blocks for higher-level navigation and mission planning.
+#
+# NED Frame:
+# - North: Positive = northward from home
+# - East: Positive = eastward from home
+# - Down: Positive = descending (NEGATIVE = UP)
+#
+# Uses offboard mode for precise position control with OffboardOwner for
+# mutual exclusion and 20Hz setpoint streaming.
+# ==============================================================================
+
+from avatar.mcp_server.tools.primitives import (
+    set_position_ned,       # Command position in NED frame (offboard mode)
+    SetPositionNedInput,    # Input schema for position validation
+    PositionStreamer,       # 20Hz setpoint streaming for position control
+    PositionToolsConfig,    # Configuration for position tools
+    set_yaw,                # Command yaw angle (heading)
+    SetYawInput,            # Input schema for yaw validation
+)
+
+# ==============================================================================
+# CATEGORY 10: PREFLIGHT TOOLS - Safety validation before flight
+# ==============================================================================
+# Preflight tools run safety checks before arming the drone.
+# They validate GPS lock, battery level, home position, sensor calibration,
+# and MAVLink connection status.
+#
+# Use before any arm command to ensure safe flight conditions.
+# ==============================================================================
+
+from avatar.mcp_server.tools.primitives_preflight import (
+    run_preflight,               # Run preflight checks and return results
+    handle_run_preflight,        # MCP handler for preflight tool
+    RunPreflightInput,           # Input schema for preflight checks
+    PreflightResult,             # Output schema for preflight results
+    run_preflight_tool_schema,   # JSON schema for MCP registration
+    run_preflight_output_schema, # JSON schema for MCP registration
+    run_preflight_annotations,   # MCP tool annotations
+)
+
+# ==============================================================================
 # PUBLIC API DEFINITION (__all__)
 # ==============================================================================
 # __all__ controls what gets imported with 'from module import *'
@@ -410,4 +474,26 @@ __all__ = [
     "unregister_operation",      # (F) Remove operation from tracking
     "generate_operation_id",     # (F) Generate unique operation ID
     "create_cancellable_context", # (F) Create cancellation context
+
+    # -----------------------------------------------------------------------------
+    # ORCHESTRATOR TOOLS (6 exports)
+    # Complex multi-step operations combining vision + flight + tracking
+    # -----------------------------------------------------------------------------
+    "orbit_subject_vision",      # (F) Orbit around vision-detected subject
+    "OrbitSubjectVisionInput",   # (Schema) Input validation for orbit
+    "ORBIT_SUBJECT_VISION_TOOL", # (Meta) Tool registration metadata
+    "track_bbox",                # (F) Track object via bbox with Kalman filter
+    "TrackBboxInput",            # (Schema) Input validation for track_bbox
+    "TRACK_BBOX_TOOL",           # (Meta) Tool registration metadata
+
+    # -----------------------------------------------------------------------------
+    # PRIMITIVE TOOLS (6 exports)
+    # Low-level position control in NED frame
+    # -----------------------------------------------------------------------------
+    "set_position_ned",          # (F) Command position in NED frame
+    "SetPositionNedInput",       # (Schema) Input validation for position
+    "PositionStreamer",          # (C) 20Hz setpoint streaming
+    "PositionToolsConfig",       # (Cfg) Position tools configuration
+    "set_yaw",                   # (F) Command yaw angle (heading)
+    "SetYawInput",               # (Schema) Input validation for yaw
 ]

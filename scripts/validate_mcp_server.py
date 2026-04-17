@@ -99,7 +99,7 @@ def check_server_imports():
         return False
 
 
-def check_tools_available(expected_count: int = 30):
+def check_tools_available(expected_count: int = 52):
     """
     Check that all MCP tools are available and importable.
 
@@ -398,8 +398,8 @@ def main():
     parser.add_argument(
         "--expected-count",
         type=int,
-        default=30,
-        help="Expected number of MCP tools (default: 30)"
+        default=52,
+        help="Expected number of MCP tools (default: 52)"
     )
     args = parser.parse_args()
 

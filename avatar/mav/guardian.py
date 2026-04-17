@@ -629,3 +629,32 @@ False, triggering failsafe procedures.
             True if home position is set, False otherwise.
         """
         return self._home_lat is not None and self._home_lon is not None
+
+    def clear_home(self) -> None:
+        """
+        Clear the home position, effectively disabling the geofence.
+
+        SAFETY WARNING:
+        ==============
+        This disables distance-based geofence checks! Commands will no longer
+        be validated against max_distance_from_home_m. This should only be
+        used in controlled situations with explicit operator confirmation.
+
+        Use cases:
+        - Emergency operations requiring flight beyond geofence
+        - Testing and simulation scenarios
+        - Coordinated multi-location missions with manual oversight
+
+        After calling this:
+        - is_home_set returns False
+        - Distance checks in validate_command will fail (safe default)
+        - GuardianProcess will log a warning on next distance validation
+
+        Note:
+            This is a safety-critical operation. The MCP tool wrapper should
+            require explicit confirmation through ConfirmationManager before
+            allowing this action.
+        """
+        self._home_lat = None
+        self._home_lon = None
+        logger.warning("Home position cleared - geofence distance checks disabled")

@@ -317,6 +317,11 @@ from avatar.mcp_server.tools.meta_tools import (
     ping, async_ping, cancel_operation, async_cancel_operation
 )
 
+# Primitives: Low-level position control in NED frame
+from avatar.mcp_server.tools.primitives import (
+    set_position_ned, SetPositionNedInput, PositionStreamer, PositionToolsConfig
+)
+
 # D2.6: ConfirmationManager for human-in-the-loop confirmation
 from avatar.mcp_server.confirmation import ConfirmationManager, ConfirmationConfig
 
@@ -1288,6 +1293,361 @@ def avatar_mcp_tool_definitions() -> List[Any]:
             outputSchema=STANDARD_OUTPUT_SCHEMA,
             annotations=READ_ONLY_ANNOTATIONS,
         ),
+        # ==============================================================================
+        # W2a PRIMITIVE TOOLS - Low-level operations
+        # ==============================================================================
+        types.Tool(
+            name="arm",
+            description="Arm the drone motors (not takeoff - just arm). Requires confirmation on first arm.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "force": {
+                        "type": "boolean",
+                        "description": "Force arm even if preflight incomplete",
+                        "default": False,
+                    },
+                },
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="disarm",
+            description="Disarm the drone motors. Force disarm in-air requires confirmation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "force": {
+                        "type": "boolean",
+                        "description": "Force disarm even if in air",
+                        "default": False,
+                    },
+                },
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=EMERGENCY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_flight_mode",
+            description="Set the PX4 flight mode.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["UNKNOWN", "MANUAL", "STABILIZED", "ALTCTL", "POSCTL", "OFFBOARD", "AUTO_MISSION", "AUTO_LOITER", "AUTO_RTL", "ACRO", "ORBIT", "HOLD"],
+                        "description": "Flight mode to set",
+                    },
+                },
+                "required": ["mode"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_home",
+            description="Set the home position for RTL (Return to Launch).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lat_deg": {"type": "number", "description": "Latitude in degrees"},
+                    "lon_deg": {"type": "number", "description": "Longitude in degrees"},
+                    "alt_m": {"type": "number", "description": "Altitude AMSL in meters"},
+                },
+                "required": ["lat_deg", "lon_deg"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_geofence_polygon",
+            description="Set a polygonal geofence. Shrinking requires confirmation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "vertices": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "lat_deg": {"type": "number"},
+                                "lon_deg": {"type": "number"},
+                            },
+                        },
+                        "description": "Polygon vertices (min 3)",
+                    },
+                    "shrink_ok": {"type": "boolean", "default": False},
+                },
+                "required": ["vertices"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="disable_geofence",
+            description="Disable the geofence. Requires confirmation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "confirm": {"type": "boolean", "default": False},
+                },
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=EMERGENCY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="enable_geofence",
+            description="Re-enable a previously configured geofence.",
+            inputSchema={"type": "object", "properties": {}},
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_hard_limits",
+            description="Set safety limits for the drone.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "max_altitude_amsl_m": {"type": "number", "default": 120},
+                    "max_distance_from_home_m": {"type": "number", "default": 500},
+                    "min_battery_rtl_percent": {"type": "number", "default": 25},
+                    "max_speed_m_s": {"type": "number", "default": 15},
+                },
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_velocity_body",
+            description="Command velocity in body frame (forward/right/down).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "forward_m_s": {"type": "number", "default": 0},
+                    "right_m_s": {"type": "number", "default": 0},
+                    "down_m_s": {"type": "number", "default": 0},
+                    "yaw_rate_deg_s": {"type": "number", "default": 0},
+                    "duration_s": {"type": "number", "description": "Duration in seconds"},
+                },
+                "required": ["duration_s"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_velocity_ned",
+            description="Command velocity in NED frame (north/east/down).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "north_m_s": {"type": "number", "default": 0},
+                    "east_m_s": {"type": "number", "default": 0},
+                    "down_m_s": {"type": "number", "default": 0},
+                    "yaw_deg": {"type": "number"},
+                    "duration_s": {"type": "number"},
+                },
+                "required": ["duration_s"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_position_ned",
+            description="Command position in NED frame relative to home.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "north_m": {"type": "number"},
+                    "east_m": {"type": "number"},
+                    "down_m": {"type": "number"},
+                    "yaw_deg": {"type": "number"},
+                    "speed_m_s": {"type": "number", "default": 5},
+                },
+                "required": ["north_m", "east_m", "down_m"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_position_gps",
+            description="Command position via GPS coordinates.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lat_deg": {"type": "number"},
+                    "lon_deg": {"type": "number"},
+                    "alt_m": {"type": "number"},
+                    "speed_m_s": {"type": "number", "default": 5},
+                },
+                "required": ["lat_deg", "lon_deg"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_yaw",
+            description="Command yaw angle (heading).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "yaw_deg": {"type": "number", "description": "Target yaw (-180 to 180)"},
+                    "yaw_rate_deg_s": {"type": "number", "default": 20},
+                    "absolute": {"type": "boolean", "default": True},
+                },
+                "required": ["yaw_deg"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="set_parameter",
+            description="Set a PX4 parameter. Critical parameters require confirmation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "value": {"type": "number"},
+                },
+                "required": ["name", "value"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="run_preflight",
+            description="Run preflight checks and return results.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "checks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Checks to run (None = all)",
+                    },
+                },
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="submit_operator_confirmation",
+            description="Submit operator confirmation for a pending action.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "confirmation_id": {"type": "string"},
+                    "approved": {"type": "boolean"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["confirmation_id", "approved"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        # ==============================================================================
+        # W2a ORCHESTRATOR TOOLS - High-level operations
+        # ==============================================================================
+        types.Tool(
+            name="track_bbox",
+            description="Track an object identified by bounding box.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "bbox": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "w": {"type": "number"},
+                            "h": {"type": "number"},
+                        },
+                    },
+                    "duration_s": {"type": "number"},
+                    "approach_speed_m_s": {"type": "number", "default": 2},
+                    "standoff_m": {"type": "number", "default": 5},
+                },
+                "required": ["bbox", "duration_s"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="orbit_subject_vision",
+            description="Orbit around a detected subject using vision.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "bbox": {"type": "object"},
+                    "radius_m": {"type": "number", "default": 10},
+                    "speed_m_s": {"type": "number", "default": 3},
+                    "orbits": {"type": "integer", "default": 1},
+                    "direction": {"type": "string", "enum": ["cw", "ccw"], "default": "cw"},
+                },
+                "required": ["bbox"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=FLIGHT_CONTROL_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="execute_waypoint_mission",
+            description="Execute a mission with waypoints and behaviors.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mission": {"type": "object", "description": "Mission object with waypoints"},
+                    "safety_check": {"type": "boolean", "default": True},
+                },
+                "required": ["mission"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=NAVIGATION_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="log_mission_segment",
+            description="Log a segment of a mission for later review.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "duration_s": {"type": "number"},
+                    "include_video": {"type": "boolean", "default": False},
+                },
+                "required": ["name", "duration_s"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="evaluate_last_command",
+            description="Evaluate the result of the last command executed.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "command_id": {"type": "string"},
+                    "detailed": {"type": "boolean", "default": False},
+                },
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
+        types.Tool(
+            name="expose_advanced_tracker",
+            description="Expose advanced tracking features via MCP.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "reset", "configure"],
+                    },
+                    "config": {"type": "object"},
+                },
+                "required": ["action"],
+            },
+            outputSchema=STANDARD_OUTPUT_SCHEMA,
+            annotations=READ_ONLY_ANNOTATIONS,
+        ),
     ]
 
 
@@ -1326,6 +1686,30 @@ LISTED_TOOL_NAMES: List[str] = [
     "execute_cinematic_shot",
     "list_cinematic_templates",
     "preview_cinematic_shot",
+    # W2a Primitives
+    "arm",
+    "disarm",
+    "set_flight_mode",
+    "set_home",
+    "set_geofence_polygon",
+    "disable_geofence",
+    "enable_geofence",
+    "set_hard_limits",
+    "set_velocity_body",
+    "set_velocity_ned",
+    "set_position_ned",
+    "set_position_gps",
+    "set_yaw",
+    "set_parameter",
+    "run_preflight",
+    "submit_operator_confirmation",
+    # W2a Orchestrators
+    "track_bbox",
+    "orbit_subject_vision",
+    "execute_waypoint_mission",
+    "log_mission_segment",
+    "evaluate_last_command",
+    "expose_advanced_tracker",
 ]
 
 

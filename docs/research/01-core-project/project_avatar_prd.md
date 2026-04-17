@@ -5,8 +5,9 @@
 Project Avatar aims to build a real, flyable drone system where a user can speak in natural language via OpenCode chat and a cloud LLM (Kimi K2.5 via Fireworks AI) autonomously plans and executes missions, using real camera data to drive real flight behavior and, later, payload actions.
 The core constraint is that **nothing is mocked**: sensor data are real, the LLM sees real camera frames, and the vehicle flies real missions, but the system architecture strictly respects physics and latency boundaries so that safety-critical reflexes never depend on the LLM.
 
-This PRD formalizes a three-stage development path:
+This PRD formalizes a four-stage development path:
 
+- **Phase 0.5 – Virtual Drone (SITL Validation)**: COMPLETE - All software stack validated in PX4 SITL + Gazebo simulation before hardware purchase. MCP server, Kimi LLM integration, hybrid vision pipeline, safety layer, and 16 cinematic shot templates fully functional. Hardware transition requires only connection string change.
 - **Stage 1 – Control Spine (No Vision)**: Prove end-to-end OpenCode chat → Kimi LLM → JSON tools → MAVSDK → PX4 Offboard control with a robust heartbeat, EKF/GPS health gating, RC override, and structured logging.
 - **Stage 2 – Real Vision for Mission Logic ("Eyes")**: Add RGB camera, YOLOv8-nano and tracking on the Mac; implement hybrid vision where YOLO provides real-time detection and Kimi receives periodic camera frames for mission-level decisions and target-centered behaviors, but not for distance-based collision reflexes.
 - **Stage 3 – Depth, Spatial Reasoning, and Payload ("Hands")**: Introduce depth sensing (Intel RealSense D435i), spatial grounding (distance in meters, basic 3D reasoning), and bench-tested payload control via ESP32, enabling depth-gated LLM reactions and kinematic calculations while PX4 and low-level processes still own hard reflexes.
@@ -14,6 +15,45 @@ This PRD formalizes a three-stage development path:
 The target ground station is a **local MacBook Pro M3** running YOLOv8 on MPS and interfacing with **Kimi K2.5 via Fireworks AI** (cloud LLM with 200 tok/s, native multimodal vision, and reliable tool calling); the drone uses a PX4-capable flight controller and a Raspberry Pi 4 companion computer as the bridge.[web:196][web:197][web:212] 
 
 **Architecture Update (April 2026)**: Cloud LLM (Kimi K2.5) is now the primary inference engine, accessed via phone cellular data. This provides 8x faster inference (200 tok/s vs 25-40 tok/s local), native multimodal vision capabilities, and dramatically improved tool-calling reliability compared to local 7B models. The 20Hz heartbeat and safety-critical reflexes remain local on the RPi/Pixhawk, maintaining independence from cloud connectivity.
+
+**Phase 0.5 Complete (April 2026)**: Full software stack validated in PX4 SITL + Gazebo simulation. All core components flight-ready: MCP server with 16 cinematic shot templates, hybrid vision pipeline (YOLO + selective frame capture), GuardianProcess safety layer, progressive confirmation workflow, and comprehensive inline code documentation. Hardware transition requires only connection string change from `udp://:14540` (SITL) to serial port (hardware).
+
+---
+
+## 1.5 Cinematic Shot Templates (Phase 0.5 Deliverable)
+
+The system includes **16 professional cinematic shot templates** for action sports filming, implemented as parameterized flight primitives in `avatar/core/cinematic_shots.py`.
+
+### Shot Categories
+
+| Category | Shots | Description |
+|----------|-------|-------------|
+| **Orbit** | 4 templates | Circular/Arc paths (5m, 10m, 15m, 30m radius) with adjustable height and speed |
+| **Follow** | 4 templates | Chase tracking from rear/side with velocity matching (5-20m distance) |
+| **Reveal** | 3 templates | Ascent/descent reveals with smooth altitude transitions |
+| **Pass-By** | 2 templates | Lateral flyover passes with speed profiles (5-15 m/s) |
+| **Top-Down** | 2 templates | Nadir overhead shots with locked height (10-30m) |
+| **Dynamic** | 1 template | FPV-style aggressive tracking with close proximity (2-8m) |
+
+### Shot Parameters (Per Template)
+- `radius_m`: Orbit radius or follow distance
+- `height_offset_m`: Relative altitude above subject
+- `speed_m_s`: Ground speed with ease-in/out curves
+- `gimbal_pitch`: Camera angle (-90° to 0°)
+- `entry_transition`: Smooth entry curve type
+- `exit_transition`: Smooth exit curve type
+
+### Motion Curves Implemented
+- `ease_in_out`: Cubic bezier (0.4, 0, 0.2, 1) for smooth start/stop
+- `linear`: Constant velocity during established motion
+- `exponential`: Quick start, slow settle for emergency positioning
+
+### Sports-Specific Presets
+- **Snowboarding**: Halfpipe tracking (5-8m above lip), jump apex (+2-5m above rider)
+- **Skateboarding**: Vert tracking (2-4m above coping), bowl overhead (3-6m)
+- **Motocross**: Jump tracking (10-20m above takeoff), safe follow distance (15-25m)
+
+All shot templates include quality thresholds: position error <1m, height accuracy ±0.5m, velocity smoothness (jerk <2 m/s³), and gimbal stability (<30°/s angular velocity).
 
 ---
 
@@ -100,18 +140,35 @@ Stage definitions and tool APIs must respect this boundary. The LLM controls **w
   - Cloud LLM inference with 128K context.  
   - Native multimodal vision (analyzes drone camera frames).  
   - Reliable tool calling for flight commands.
-- **Python Orchestrator** managing:
-  - User intent parsing and mission planning.  
-  - Google Maps MCP integration (pre-flight only).  
-  - LLM conversation flow with Kimi.  
-  - Hybrid vision coordination (YOLO + selective frame capture).  
-  - Progressive confirmation workflow.
+- **Python Orchestrator (`avatar/`)** managing:
+  - User intent parsing and mission planning via MCP server.  
+  - Google Maps MCP integration (pre-flight planning only).  
+  - LLM conversation flow with Kimi K2.5.  
+  - Hybrid vision coordination (YOLO real-time + selective frame capture for Kimi).  
+  - Progressive confirmation workflow (plan, pre-arm, mid-flight exceptions).  
+  - Flight recording and telemetry logging to local storage.
 - **YOLOv8 + ByteTrack** for real-time detection and ID persistence (local, 10-15 FPS).[web:202][web:214]
 - **Vision Pipeline**:
   - Frame capture and YOLO inference on Mac.  
   - State String generation (telemetry + detections).  
   - Selective frame capture for Kimi analysis (every 3-5s + on-demand).
 - **RealSense SDK** in Stage 3 for depth + IMU fusion.[web:198]
+
+### 3.3 Documentation Standards (Phase 0.5+)
+
+All code in the `avatar/` package includes comprehensive inline documentation:
+
+- **Docstrings**: Every public function, class, and module has complete docstrings following Google style
+- **Type Hints**: Full Python 3.10+ type annotations for all function signatures
+- **Inline Comments**: Complex logic explained with contextual comments
+- **Architecture Notes**: Key design decisions documented at module level
+- **Safety Warnings**: Critical safety considerations marked with prominent comments
+
+Key documented components:
+- `avatar/mav/guardian.py`: Safety validation layer with 37 documented checks
+- `avatar/mcp_server/server.py`: MCP server with complete tool documentation
+- `avatar/core/cinematic_shots.py`: 16 shot templates with parameter documentation
+- `avatar/vision/state_string.py`: State string format specification
 
 ---
 
@@ -126,7 +183,7 @@ Stage definitions and tool APIs must respect this boundary. The LLM controls **w
 - Bi-directional MAVLink/Offboard pipeline: PX4 ↔ RPi ↔ Mac.  
 - Offboard heartbeat subsystem (continuous setpoint streaming, independent of LLM latency).[web:45][web:33]
 - Strict JSON tool schema for flight commands (takeoff, land, goto, hold, rtl).  
-- LLM integration via local Llama 3 (Ollama), using function/tool-calling to emit valid JSON.  
+- LLM integration via Kimi K2.5 (Fireworks AI cloud API), using MCP tool calling for flight commands.  
 - EKF/GPS pre-arm gating and health checks before arming.[web:184][web:190]
 - RC transmitter override & kill switch with absolute priority.[web:130]
 - Structured logging of all commands, telemetry summaries, and LLM decisions.
@@ -143,16 +200,19 @@ Stage definitions and tool APIs must respect this boundary. The LLM controls **w
   The system shall establish a bi-directional MAVLink connection between PX4 and the Mac, routed via the RPi over Wi-Fi (UDP, e.g., `udp://:14540`).[web:200][web:130]
 
 - **FR 1.2 – Offboard Heartbeat Manager**  
-  The system shall include an offboard heartbeat manager that streams valid setpoints to PX4 at ≥ 2 Hz whenever offboard mode is engaged, and continues streaming even if the LLM is blocked or slow.[web:45][web:33]
+  The system shall include an offboard heartbeat manager (`avatar/mav/connection.py`) that streams valid setpoints to PX4 at 20 Hz whenever offboard mode is engaged, and continues streaming even if the LLM is blocked or slow. The heartbeat runs independently on the companion computer.[web:45][web:33]
 
 - **FR 1.3 – JSON Tool Schema (Control)**  
-  The LLM shall only issue flight commands via a predefined JSON schema, including (minimum):  
+  The LLM shall only issue flight commands via predefined MCP tools, including (minimum):  
   - `arm_and_takeoff(altitude_m)`  
   - `goto_gps(lat, lon, alt_m)`  
   - `fly_body_offset(forward_m, right_m, up_m)`  
-  - `hold(seconds)`  
+  - `hold_position()`  
   - `land()`  
-  - `rtl()`
+  - `rtl()`  
+  - `abort_mission(reason)`  
+  - `plan_mission(natural_language_description)`
+  - `execute_cinematic_shot(shot_type, parameters)`
 
 - **FR 1.4 – Blocking Execution with Heartbeat Hold**  
   The orchestrator shall ensure that only one high-level command is active at a time, and shall keep the last valid setpoint streaming until a new tool completes or is cancelled.
@@ -168,12 +228,13 @@ Stage definitions and tool APIs must respect this boundary. The LLM controls **w
 
 #### 4.1.4 Stage 1 Definition of Done
 
-- Typing:  
+- Typing via any MCP client (Claude Code, OpenCode, etc.):  
   `"Take off to 10 meters, fly east 20 meters, and land."`  
-  leads to LLM-emitted JSON tools.  
-- The orchestrator validates tools, runs pre-arm checks, arms, executes the mission using PX4 Offboard with a continuous heartbeat, and lands.  
+  leads to Kimi-generated mission plan and MCP tool calls.  
+- The Drone MCP Server validates tools via GuardianProcess, runs pre-arm checks, arms, executes the mission using PX4 Offboard with a continuous 20Hz heartbeat, and lands.  
+- Progressive confirmation workflow: user confirms mission plan, pre-arm check, and mid-flight exceptions.  
 - RC kill switch can interrupt at any time.  
-- Log shows a clear sequence of decisions and telemetry snapshots.
+- Structured logs show clear sequence of decisions, telemetry snapshots, and LLM reasoning.
 
 ---
 
@@ -199,14 +260,16 @@ Stage definitions and tool APIs must respect this boundary. The LLM controls **w
 
 #### 4.2.3 Functional Requirements
 
-- **FR 2.1 – Vision Pipeline**  
-  A background process shall ingest live video frames, run YOLOv8-nano, and track objects (e.g., people) with persistent IDs at ≥ 10–15 FPS on the Mac, using MPS or CPU as appropriate.[web:202][web:211][web:218]
+- **FR 2.1 – Hybrid Vision Pipeline**  
+  A background process shall ingest live video frames (SITL: Gazebo camera; Hardware: Pi Camera), run YOLOv8-nano with ByteTrack, and track objects (e.g., people) with persistent IDs at ≥ 10–15 FPS on the Mac, using MPS or CPU as appropriate.[web:202][web:211][web:218]
 
 - **FR 2.2 – State String Synthesis**  
-  Every 1–2 seconds, the system shall synthesize a text state summary that includes:  
-  - Key telemetry (mode, altitude, velocity, battery, GPS health).  
-  - Detected objects (class, count, IDs, approximate frame locations such as left/center/right, top/middle/bottom).  
+  Every 1–2 seconds, the system shall synthesize a compact text state summary (`avatar/vision/state_string.py`) that includes:  
+  - Key telemetry (mode, altitude, velocity, battery, GPS health, heading).  
+  - Detected objects (class, count, IDs, bounding boxes, confidence scores).  
+  - Frame-level context (camera resolution, timestamp).  
   - Simple event markers (e.g., "new person ID appeared", "tracked ID lost").[web:214]
+  - The State String is injected into the LLM context window for continuous situational awareness without processing raw video frames.
 
 - **FR 2.3 – LLM Context Injection**  
   The State String shall be injected into the LLM system prompt or context on each main loop, so that it has continuous situational awareness without processing raw images directly.[web:29][web:56]
@@ -282,7 +345,7 @@ Stage definitions and tool APIs must respect this boundary. The LLM controls **w
 ### 5.1 Safety and Failsafes
 
 - **NFR 5.1.1 – Heartbeat Resilience**  
-  Offboard control must respect PX4’s requirement for continuous setpoint streaming; if the heartbeat fails, PX4 must automatically transition to a configured safe mode (e.g., Position Hold or RTL) per `COM_OBL_RC_ACT` and related parameters.[web:45][web:33]
+  Offboard control must respect PX4’s requirement for continuous 20Hz setpoint streaming; if the heartbeat fails, PX4 must automatically transition to a configured safe mode (e.g., Position Hold or RTL) per `COM_OBL_RC_ACT` and related parameters.[web:45][web:33]
 
 - **NFR 5.1.2 – EKF & Sensor Health**  
   Missions must be blocked if EKF or sensor checks fail PX4 preflight requirements.[web:184][web:190]

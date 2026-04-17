@@ -37,5 +37,6 @@ async def test_mcp_stdio_lists_tools_in_offline_mode():
             tools = await session.list_tools()
 
     names = {tool.name for tool in tools.tools}
-    assert "get_status" in names
-    assert "arm_and_takeoff" in names
+    # Check for key tools that should always be available
+    assert "get_drone_status" in names, f"get_drone_status not found in {names}"
+    assert "arm_and_takeoff" in names, f"arm_and_takeoff not found in {names}"

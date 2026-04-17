@@ -248,7 +248,7 @@ class TelemetryTools:
         # GuardianProcess validates telemetry against safety limits
         # e.g., is battery too low? Is drone outside geofence?
         self.guardian = GuardianProcess(self.hard_limits)
-        self._drone: Optional["DroneConnection"] = None
+        self._drone: Optional[Any] = None  # MAVSDK System instance
         self._connected = False
 
     async def _ensure_connection(self) -> dict[str, Any]:
@@ -258,9 +258,8 @@ class TelemetryTools:
         error dict if connection fails, or an empty dict if already connected.
 
         Connection Strategy:
-        - If already connected, return immediately (no-op)
-        - Otherwise, create DroneConnection and attempt to connect
-        - Retry logic is handled by DroneConnection internally
+        - Use ConnectionManager singleton for persistent connection
+        - No DroneConnection wrapper needed
 
         Returns:
             Error dict if connection failed, empty dict if connected.
@@ -269,25 +268,30 @@ class TelemetryTools:
         if self._drone is not None and self._connected:
             return {}
 
-        connection_config = ConnectionConfig(
-            system_address=self.config.system_address,
-            max_retries=self.config.max_retries,
-            retry_delay_s=self.config.retry_delay_s,
-            health_timeout_s=self.config.health_timeout_s,
-        )
-        from avatar.mcp_server.compat import DroneConnection
-        self._drone = DroneConnection(connection_config)
+        # Use ConnectionManager singleton for persistent connection
+        cm = ConnectionManager()
 
-        if not await self._drone.connect():
+        try:
+            drone = await cm.ensure_connected()
+            if drone is None:
+                return to_error_envelope(
+                    ErrorCode.MAV_NOT_CONNECTED,
+                    "Failed to connect to drone. Ensure SITL or hardware is running.",
+                    recoverable=True,
+                    suggested_action="Start PX4 SITL or connect hardware",
+                )
+
+            self._drone = drone
+            self._connected = True
+            return {}
+
+        except ConnectionError as e:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
-                "Failed to connect to drone. Ensure SITL or hardware is running.",
+                f"Failed to connect to drone: {e}",
                 recoverable=True,
-                suggested_action="Start PX4 SITL or connect hardware",
+                suggested_action="Check drone connection and retry",
             )
-
-        self._connected = True
-        return {}
 
     async def get_telemetry(self) -> dict[str, Any]:
         """Get comprehensive drone telemetry data.
@@ -343,7 +347,7 @@ class TelemetryTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -351,7 +355,7 @@ class TelemetryTools:
                 suggested_action="Ensure connection is established before requesting telemetry",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
         telemetry_data: dict[str, Any] = {"success": True}
 
         try:
@@ -498,7 +502,7 @@ class TelemetryTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -506,7 +510,7 @@ class TelemetryTools:
                 suggested_action="Ensure connection is established before requesting telemetry",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
         battery_data: dict[str, Any] = {"success": True}
 
         try:
@@ -597,7 +601,7 @@ class TelemetryTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -605,7 +609,7 @@ class TelemetryTools:
                 suggested_action="Ensure connection is established before requesting telemetry",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
         health_data: dict[str, Any] = {"success": True}
 
         try:
@@ -701,7 +705,7 @@ class TelemetryTools:
         if conn_error:
             return conn_error
 
-        if self._drone is None or self._drone.drone is None:
+        if self._drone is None:
             return to_error_envelope(
                 ErrorCode.MAV_NOT_CONNECTED,
                 "Drone not connected",
@@ -709,7 +713,7 @@ class TelemetryTools:
                 suggested_action="Ensure connection is established before requesting telemetry",
             )
 
-        drone = self._drone.drone
+        drone = self._drone
         position_data: dict[str, Any] = {"success": True}
 
         try:
