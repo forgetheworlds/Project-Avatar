@@ -727,9 +727,9 @@ class TestStatePrecondition:
         an appropriate flying state (DISARMED, LANDED, etc.).
 
         EXPECTED OUTCOMES:
-        - success=False
-        - Error message mentions "State precondition failed"
-        - Error message includes current state name (DISARMED)
+        - isError=True (structured error envelope from Wave 1)
+        - Error message mentions "Cannot move" and state name
+        - Error code is PREFLIGHT_BLOCKED
 
         WHY THIS MATTERS:
         Prevents accidental takeoff attempts or movement commands when the
@@ -744,9 +744,11 @@ drone is not ready to fly, improving safety.
         # Execute movement - should fail due to state precondition
         result = await tools.fly_body_offset(forward_m=10.0)
 
-        assert result["success"] is False
-        assert "State precondition failed" in result["error"]
-        assert "DISARMED" in result["error"]
+        # Check structured error envelope format (Wave 1 D2.1)
+        assert result["isError"] is True
+        assert result["error"]["code"] == "PREFLIGHT_BLOCKED"
+        assert "Cannot move" in result["error"]["message"]
+        assert "DISARMED" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @patch.object(ConnectionManager, '_do_connect', new_callable=AsyncMock)
@@ -812,7 +814,8 @@ drone is not ready to fly, improving safety.
         If requested speed exceeds HardLimits.max_speed_m_s, the command fails.
 
         EXPECTED OUTCOMES:
-        - success=False when speed exceeds limit
+        - isError=True when speed exceeds limit (structured error envelope)
+        - Error code is GUARDIAN_VIOLATION
         - Error message indicates speed limit violation
 
         MOCK SETUP:
@@ -831,8 +834,10 @@ drone is not ready to fly, improving safety.
         # Execute movement with excessive speed
         result = await tools.fly_body_offset(forward_m=10.0, speed_m_s=10.0)
 
-        assert result["success"] is False
-        assert "exceeds max" in result["error"]
+        # Check structured error envelope format (Wave 1 D2.1)
+        assert result["isError"] is True
+        assert result["error"]["code"] == "GUARDIAN_VIOLATION"
+        assert "exceeds max" in result["error"]["message"]
 
 
 class TestMcpToolWrapper:
