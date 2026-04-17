@@ -558,26 +558,35 @@ class TestWrapperFunction:
     """
 
     @pytest.mark.asyncio
-    async def test_set_yaw_wrapper_returns_json(self):
+    async def test_set_yaw_wrapper_returns_json(self, mock_state_machine, mock_drone):
         """Verify wrapper returns JSON string."""
-        # This will fail on connection but should return valid JSON
-        result = await set_yaw(yaw_deg=90.0)
+        set_state_machine(mock_state_machine)
 
-        # Should be a string
-        try:
-            parsed = json.loads(result)
-            assert isinstance(parsed, dict)
-        except json.JSONDecodeError:
-            pytest.fail("Wrapper should return valid JSON string")
+        with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+            mock_cm.return_value.ensure_connected = AsyncMock(return_value=mock_drone)
+
+            result = await set_yaw(yaw_deg=90.0)
+
+            # Should be a string
+            try:
+                parsed = json.loads(result)
+                assert isinstance(parsed, dict)
+            except json.JSONDecodeError:
+                pytest.fail("Wrapper should return valid JSON string")
 
     @pytest.mark.asyncio
-    async def test_set_yaw_wrapper_default_params(self):
+    async def test_set_yaw_wrapper_default_params(self, mock_state_machine, mock_drone):
         """Verify wrapper works with default parameters."""
-        result = await set_yaw(yaw_deg=0.0)
+        set_state_machine(mock_state_machine)
 
-        try:
-            parsed = json.loads(result)
-            # Should either succeed or fail gracefully
-            assert "success" in parsed or "error" in parsed
-        except json.JSONDecodeError:
-            pytest.fail("Wrapper should return valid JSON string")
+        with patch('avatar.mcp_server.tools.primitives.ConnectionManager') as mock_cm:
+            mock_cm.return_value.ensure_connected = AsyncMock(return_value=mock_drone)
+
+            result = await set_yaw(yaw_deg=0.0)
+
+            try:
+                parsed = json.loads(result)
+                # Should either succeed or fail gracefully
+                assert "success" in parsed or "isError" in parsed
+            except json.JSONDecodeError:
+                pytest.fail("Wrapper should return valid JSON string")
