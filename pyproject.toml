@@ -300,6 +300,7 @@ markers = [
     "safety_critical: marks safety-critical tests",
     "hardware_in_loop: marks tests requiring hardware",
     "sitl: marks tests that require PX4 SITL and --run-sitl",
+    "sim: marks scenario tests that invoke run-scenario.sh subprocess",
 ]
 asyncio_mode = "auto"
 timeout = 300  # 5 minutes max per test

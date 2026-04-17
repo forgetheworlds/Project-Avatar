@@ -756,12 +756,22 @@ class PX4ParameterManager:
             message=message,
         )
 
-    async def verify_safety_parameters(self) -> List[ParameterStatus]:
+    async def verify_safety_parameters(
+        self,
+        overlay: Optional[Union[Dict[str, Union[int, float]], "Path"]] = None,
+    ) -> List[ParameterStatus]:
         """Verify all critical safety parameters are configured correctly.
 
         This is the PRIMARY PRE-FLIGHT SAFETY CHECK for Layer 1.
         It reads all critical parameters and validates them against
-        expected values.
+        expected values, optionally merging with an airframe overlay.
+
+        Args:
+            overlay: Optional parameter overlay. Can be:
+                - Dict mapping param names to values (airframe-specific)
+                - Path to a .params file to parse
+                The overlay wins on key intersection - airframe-specific
+                params override the default CRITICAL_PARAMETERS.
 
         Returns:
             List of ParameterStatus for all critical parameters
@@ -770,10 +780,21 @@ class PX4ParameterManager:
             PX4ParameterError: If parameter reads fail completely
 
         Usage:
+            # Standard verification with default CRITICAL_PARAMETERS
             results = await pm.verify_safety_parameters()
             if not pm.is_safety_configured(results):
-                # DO NOT FLY - safety parameters incorrect
                 raise SafetyError("Safety check failed")
+
+            # Verification with airframe overlay
+            results = await pm.verify_safety_parameters(
+                overlay={"COM_OBL_RC_ACT": 3, "BAT_N_CELLS": 6}
+            )
+
+            # Verification with .params file
+            from pathlib import Path
+            results = await pm.verify_safety_parameters(
+                overlay=Path("hardware/px4/airframes/mark4_7in.params")
+            )
 
         Output:
         - Logs summary: "X/Y parameters valid"
@@ -782,11 +803,80 @@ class PX4ParameterManager:
         """
         logger.info("Verifying all critical safety parameters...")
 
-        results: List[ParameterStatus] = []
-        actual_values = await self.get_all_parameters()
+        # Build the parameter set to verify
+        params_to_verify: Dict[str, Union[int, float]] = dict(CRITICAL_PARAMETERS)
 
-        for name, expected in CRITICAL_PARAMETERS.items():
-            actual = actual_values.get(name)
+        # Process overlay if provided
+        if overlay is not None:
+            overlay_dict: Dict[str, Union[int, float]] = {}
+
+            if isinstance(overlay, dict):
+                overlay_dict = overlay
+            else:
+                # Assume it's a Path-like object
+                from pathlib import Path as PathLib
+
+                if hasattr(overlay, "exists"):
+                    # It's a Path object
+                    overlay_path = overlay
+                else:
+                    # Try to convert to Path
+                    overlay_path = PathLib(str(overlay))
+
+                if overlay_path.exists():
+                    # Parse the .params file
+                    import re
+
+                    with open(overlay_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            match = re.match(
+                                r"param\s+set(?:-default)?\s+(\S+)\s+(\S+)",
+                                line,
+                            )
+                            if match:
+                                name = match.group(1)
+                                value_str = match.group(2)
+                                try:
+                                    if "." in value_str:
+                                        value: Union[int, float] = float(value_str)
+                                    else:
+                                        value = int(value_str)
+                                    overlay_dict[name] = value
+                                except ValueError:
+                                    logger.warning(
+                                        "Invalid value in overlay: %s = %s",
+                                        name,
+                                        value_str,
+                                    )
+
+                    logger.info(
+                        "Loaded %d params from overlay: %s",
+                        len(overlay_dict),
+                        overlay_path,
+                    )
+                else:
+                    logger.warning("Overlay file not found: %s", overlay_path)
+
+            # Merge overlay (overlay wins on intersection)
+            for name, value in overlay_dict.items():
+                if name in params_to_verify:
+                    logger.debug(
+                        "Overlay override: %s = %s (base had %s)",
+                        name,
+                        value,
+                        params_to_verify[name],
+                    )
+                params_to_verify[name] = value
+
+        results: List[ParameterStatus] = []
+
+        # Read parameters from drone
+        for name in params_to_verify.keys():
+            actual = await self.get_parameter(name)
+            expected = params_to_verify[name]
             status = self.check_parameter(name, expected, actual)
             results.append(status)
 
