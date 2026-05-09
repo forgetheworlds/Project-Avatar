@@ -1,0 +1,24 @@
+id: flight_recorder_replay_diff
+kind: nature_cinematic
+description: "flight-recorder JSONL replay -> regression diff vs live run"
+backends: [flight_recorder]
+sim:
+  tier: offline
+  world: default
+  px4_model: none
+  seed: 0
+  speed_factor: 1.0
+preconditions:
+  px4_params: hardware/px4/airframes/x500_v2.params
+  home: { lat: 47.3977, lon: 8.5456, alt_m: 488 }
+  battery_pct: 100
+stages:
+  - { id: load_baseline, tool: flight_recorder_load, args: { path: artifacts/baseline/orbit_offboard_freeze.jsonl },
+      expect: { success: true } }
+  - { id: replay, tool: flight_recorder_replay, args: { tolerance: strict },
+      expect: { max_state_delta: { lte: 0 } } }
+assertions:
+  - within_s: 5
+    expect: { replay_ok: true }
+teardown:
+  collect: [replay_diff_report, guardian_alerts]

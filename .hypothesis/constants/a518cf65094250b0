@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/__init__.py
-# hypothesis_version: 6.151.12
-
-['Alert', 'AsyncGuardian', 'CRITICAL_PARAMETERS', 'DATA_LINK_PARAMS', 'EscalationEvent', 'EscalationMatrix', 'EscalationRule', 'EscalationTimer', 'GEOFENCE_PARAMS', 'GeoPoint', 'GuardianConfig', 'GuardianStatus', 'HeartbeatConfig', 'HeartbeatService', 'HeartbeatSource', 'HeartbeatState', 'MonitorType', 'PX4ParameterError', 'PX4ParameterManager', 'ParameterStatus', 'RC_FAILSAFE_PARAMS', 'ResourceCallback', 'ResourceMetrics', 'ResourceMonitor', 'ResourceStatus', 'ResourceThresholds', 'SafetyAction', 'SafetyError', 'SafetyLimits', 'SeverityLevel', 'SourceStatus', 'VIOMetrics', 'VelocityNED', 'check_battery_level', 'check_heartbeat', 'create_rtl_monitor', 'quick_safety_check']

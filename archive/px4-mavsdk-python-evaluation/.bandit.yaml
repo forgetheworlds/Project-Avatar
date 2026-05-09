@@ -1,0 +1,293 @@
+# Bandit Security Linter Configuration
+# Safety-critical drone software security scanning
+
+# ============================================================================
+# SKIPPED TESTS
+# ============================================================================
+# Tests to skip (by ID). Empty list means run all tests.
+skips: []
+
+# ============================================================================
+# INCLUDED TESTS
+# ============================================================================
+# Run all tests except those explicitly skipped
+tests:
+  # Injection vulnerabilities
+  - B301  # Python 3.x blacklisted methods
+  - B302  # Python 2.x blacklisted methods
+  - B303  # Use of insecure MD2, MD4, MD5, or SHA1 hash functions
+  - B304  # Use of insecure cipher mode
+  - B305  # Use of insecure cipher
+  - B306  # Use of insecure and deprecated function (mktemp)
+  - B307  # Use of possibly insecure function - mark_safe
+  - B308  # Use of mark_safe with autoescape disabled
+  - B310  # Audit url open for permitted schemes
+  - B311  # Standard pseudo-random generators are not suitable for security/cryptographic purposes
+  - B312  # Telnet-related functions are being called
+  - B313  # XMLBadCrc32
+  - B314  # XMLBadCrc32
+  - B315  # XMLBadCrc32
+  - B316  # XMLBadCrc32
+  - B317  # XMLBadCrc32
+  - B318  # XMLBadCrc32
+  - B319  # XMLBadCrc32
+  - B320  # XMLBadCrc32
+  - B321  # FTP-related functions are being called
+  - B323  # Unverified context
+  - B324  # Use of insecure hash functions
+
+  # Cryptographic issues
+  - B401  # Import of telnetlib
+  - B402  # Import of ftplib
+  - B403  # Import of pickle
+  - B404  # Import of subprocess
+  - B405  # Import of xml.etree.cElementTree
+  - B406  # Import of xml.etree.ElementTree
+  - B407  # Import of xml.sax
+  - B408  # Import of xml.minidom
+  - B409  # Import of xml.pulldom
+  - B410  # Import of lxml
+  - B411  # Import of xmlrpclib
+  - B412  # Import of httplib
+  - B413  # Import of pycrypto
+
+  # Runtime execution (high severity for safety-critical)
+  - B102  # Use of exec
+  - B104  # Possible binding to all interfaces (0.0.0.0)
+  - B105  # Possible hardcoded password
+  - B106  # Possible hardcoded password function arg
+  - B107  # Possible hardcoded password default
+  - B110  # Try, Except, Pass detected
+  - B112  # Try, Except, Continue detected
+
+  # Information leakage
+  - B201  # Flask debug mode
+  - B501  # Request with verify=False disabling SSL verification
+  - B502  # SSL with bad version
+  - B503  # SSL with bad defaults
+  - B504  # SSL with no version
+  - B505  # Weak cryptographic key
+  - B506  # YAML load with unsafe loader
+  - B507  # SSH host key verification bypass
+  - B601  # Possible shell injection via Paramiko call
+  - B602  # Subprocess call with shell=True
+  - B603  # Subprocess call without shell=True
+  - B604  # Any other function with shell=True
+  - B605  # Starting a process with a shell
+  - B606  # Starting a process without a shell
+  - B607  # Starting a process with a partial path
+  - B608  # Hardcoded SQL expressions
+  - B609  # Wildcard injection
+  - B610  # Extra potential SQL injection
+  - B611  # Raw SQL expression
+  - B701  # Jinja2 template with autoescape=False
+  - B702  # Use of Mako template
+  - B703  # Django mark_safe
+
+  # Input validation (critical for safety)
+  - B103  # Set bad file permissions
+  - B108  # Probable insecure usage of temp file/directory
+
+# ============================================================================
+# SEVERITY LEVELS
+# ============================================================================
+# Severity levels to report
+# LOW, MEDIUM, HIGH, CRITICAL
+severity: [LOW, MEDIUM, HIGH]
+
+# Confidence levels to report
+# LOW, MEDIUM, HIGH
+confidence: [MEDIUM, HIGH]
+
+# ============================================================================
+# EXCLUDED PATHS
+# ============================================================================
+# Paths to exclude from scanning
+exclude_dirs:
+  - "./tests"
+  - "./test_*/"
+  - "./venv"
+  - "./.venv"
+  - "./__pycache__"
+  - "./build"
+  - "./dist"
+  - "./.git"
+  - "./.tox"
+  - "./.pytest_cache"
+  - "./.mypy_cache"
+  - "./docs"
+  - "./scripts"
+  - "./.hypothesis"
+  - "./htmlcov"
+  - "./research"
+
+# ============================================================================
+# INCLUDED PATHS
+# ============================================================================
+# Specific paths to include (if empty, includes all except excluded)
+include:
+  - "./avatar/**/*.py"
+
+# ============================================================================
+# FILE PATTERNS
+# ============================================================================
+# File patterns to match
+included_file_extensions:
+  - ".py"
+
+# ============================================================================
+# PER-FILE OVERRIDES
+# ============================================================================
+# Test files have different security requirements
+per_file:
+  # Allow assert statements in tests
+  "*/test_*.py":
+    skips: ["S101"]
+
+  # Allow subprocess in test fixtures
+  "*/fixtures/*.py":
+    skips: ["B404", "B602", "B603", "B604", "B605", "B606"]
+
+  # Allow pickle in specific serialization tests
+  "*/test_serialization*.py":
+    skips: ["B301", "B403"]
+
+  # Configuration files may have "hardcoded" values
+  "*/config*.py":
+    skips: ["B105", "B106", "B107"]
+
+# ============================================================================
+# PLUGIN SETTINGS
+# ============================================================================
+# Plugin-specific configuration
+bandit.plugins:
+  # Blacklist calls (security-sensitive functions)
+  blacklist:
+    # Functions that should never be called in production
+    bad_func_names:
+      - "pickle.loads"
+      - "yaml.load"
+      - "yaml.unsafe_load"
+      - "eval"
+      - "exec"
+      - "compile"
+      - "subprocess.call"
+      - "os.system"
+      - "input"
+
+    # Blacklisted imports
+    bad_module_names:
+      - "pickle"
+      - "xml.etree.cElementTree"
+      - "xml.etree.ElementTree"
+      - "xml.sax"
+
+  # Hardcoded password detection
+  hardcoded_password:
+    # Function names that might indicate password parameters
+    function_names:
+      - "password"
+      - "passwd"
+      - "pwd"
+      - "secret"
+      - "token"
+      - "key"
+      - "api_key"
+      - "apikey"
+      - "auth_token"
+      - "authToken"
+
+    # String patterns to ignore (false positives)
+    ignore_patterns:
+      - "password = None"
+      - "password = ''"
+      - "password = \"\""
+      - "password = os.environ"
+      - "password = getpass"
+      - "SECRET_KEY = None"
+
+  # Shell injection detection
+  shell_injection:
+    # Shell=True is forbidden in safety-critical code
+    shell: true
+
+# ============================================================================
+# ASSERTION CONFIGURATION
+# ============================================================================
+# How to handle assert statements
+# In safety-critical code, we use assert for internal invariants
+# but bandit warns on all asserts. We skip S101 for production code
+# but keep it for tests to ensure assertions are properly used.
+
+# Note: S101 is in the default skips list for production code files
+# via the per_file configuration above
+
+# ============================================================================
+# OUTPUT FORMATTING
+# ============================================================================
+# Output format: txt, json, xml, csv, custom
+format: txt
+
+# Show code snippets in output
+show_source: true
+
+# Show line numbers in output
+show_lineno: true
+
+# Show test IDs in output
+show_test_ids: true
+
+# Show severity level in output
+show_severity: true
+
+# Show confidence level in output
+show_confidence: true
+
+# ============================================================================
+# AGGRESSIVE MODE
+# ============================================================================
+# More aggressive checking (may have false positives)
+aggressive: false
+
+# ============================================================================
+# RECURSIVE SCANNING
+# ============================================================================
+# Scan directories recursively
+recursive: true
+
+# ============================================================================
+# QUIET MODE
+# ============================================================================
+# Suppress output
+quiet: false
+
+# ============================================================================
+# PROFILE
+# ============================================================================
+# Enable profiling (for debugging bandit itself)
+profile: false
+
+# ============================================================================
+# DEBUG
+# ============================================================================
+# Enable debug output
+debug: false
+
+# ============================================================================
+# CUSTOM TWEAKS
+# ============================================================================
+# Any other configuration tweaks
+
+# Drone-specific security rules
+drone_security:
+  # Enforce no hardcoded telemetry endpoints
+  check_telemetry_endpoints: true
+
+  # Enforce no hardcoded encryption keys
+  check_encryption_keys: true
+
+  # Enforce validation on all external inputs
+  check_input_validation: true
+
+  # Enforce secure defaults for all configurations
+  check_secure_defaults: true

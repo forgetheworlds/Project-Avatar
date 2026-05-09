@@ -1,0 +1,54 @@
+{
+  "scenario_id": "flight_recorder_replay_diff",
+  "passed": false,
+  "failures": [],
+  "duration_s": 0.00011539459228515625,
+  "stages": [
+    {
+      "stage_id": "load_baseline",
+      "tool": "flight_recorder_load",
+      "success": true,
+      "error": null,
+      "duration_s": 1.1920928955078125e-06
+    },
+    {
+      "stage_id": "replay",
+      "tool": "flight_recorder_replay",
+      "success": true,
+      "error": null,
+      "duration_s": 7.152557373046875e-07
+    }
+  ],
+  "injections": [],
+  "assertions": [
+    {
+      "status": "pass",
+      "expected": {
+        "replay_ok": true
+      },
+      "actual": {
+        "flight_mode": "OFFBOARD",
+        "armed": true,
+        "in_air": true,
+        "battery_percent": 85.0,
+        "gps_satellites": 12,
+        "home_lat": 37.7749,
+        "home_lon": -122.4194,
+        "latitude": 37.775,
+        "longitude": -122.4195,
+        "altitude_amsl_m": 50.0,
+        "speed_m_s": 5.0,
+        "vx_m_s": 2.0,
+        "vy_m_s": 0.0,
+        "vz_m_s": 0.0,
+        "roll_deg": 0.0,
+        "pitch_deg": 0.0,
+        "yaw_deg": 90.0,
+        "replay_loaded": true,
+        "replay_ok": true,
+        "max_state_delta": 0
+      },
+      "message": ""
+    }
+  ]
+}

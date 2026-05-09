@@ -1,0 +1,7 @@
+[
+    {"cmd": 22, "lat": -35.363261, "lon": 149.165230, "alt": 10.0, "param1": 0, "param2": 0, "param3": 0, "param4": 0},
+    {"cmd": 16, "lat": -35.362800, "lon": 149.167000, "alt": 15.0, "param1": 0, "param2": 0, "param3": 0, "param4": 0},
+    {"cmd": 16, "lat": -35.364000, "lon": 149.167500, "alt": 15.0, "param1": 0, "param2": 0, "param3": 0, "param4": 0},
+    {"cmd": 16, "lat": -35.364200, "lon": 149.165000, "alt": 10.0, "param1": 0, "param2": 0, "param3": 0, "param4": 0},
+    {"cmd": 21, "lat": -35.363261, "lon": 149.165230, "alt": 0.0, "param1": 0, "param2": 0, "param3": 0, "param4": 0}
+]

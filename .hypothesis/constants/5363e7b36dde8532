@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/resource_monitor.py
-# hypothesis_version: 6.151.12
-
-[0.0, 0.1, 1.0, 80.0, 90.0, 95.0, 1000.0, 100, 150, '/', 'cpu', 'disk', 'high_fps_mode', 'logging_verbose', 'mcp_verbose', 'memory', 'telemetry_logging', 'temperature', 'vision_inference', 'vision_processing']

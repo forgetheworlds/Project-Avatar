@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/px4_parameters.py
-# hypothesis_version: 6.151.12
-
-[0.001, 0.1, 0.15, 0.25, 0.4, 0.5, 5.0, 120, 500, 'BAT_CRIT_THR', 'BAT_EMERGEN_THR', 'BAT_LOW_THR', 'COM_ARM_BAT_MIN', 'COM_DL_LOSS_T', 'COM_LOW_BAT_ACT', 'COM_OBL_ACT', 'COM_OBL_RC_ACT', 'COM_OF_LOSS_T', 'COM_RCL_EXCEPT', 'COM_RC_LOSS_T', 'FAIL', 'GF_ACTION', 'GF_ALTMODE', 'GF_MAX_HOR_DIST', 'GF_MAX_VER_DIST', 'N/A', 'NAV_DLL_ACT', 'NAV_RCL_ACT', 'OK', 'actual', 'expected', 'float', 'int', 'invalid_count', 'invalid_parameters', 'is_safe', 'message', 'name', 'total_parameters', 'valid_count']

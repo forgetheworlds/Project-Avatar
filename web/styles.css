@@ -1,0 +1,505 @@
+:root {
+  --bg: #101412;
+  --surface: #f2ede0;
+  --surface-2: #ded6c2;
+  --ink: #101412;
+  --muted: #626a5f;
+  --line: rgba(16, 20, 18, 0.16);
+  --green: #5f9b68;
+  --amber: #d88a23;
+  --red: #a74a35;
+  --blue: #4d7f9f;
+  --shadow: 0 26px 80px rgba(16, 20, 18, 0.24);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  background:
+    linear-gradient(90deg, rgba(16, 20, 18, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(16, 20, 18, 0.05) 1px, transparent 1px),
+    var(--surface);
+  background-size: 28px 28px;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  transform: translateY(-160%);
+  padding: 10px 14px;
+  color: var(--surface);
+  background: var(--ink);
+  border-radius: 999px;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px clamp(18px, 4vw, 56px);
+  background: rgba(242, 237, 224, 0.86);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(18px);
+}
+
+.brand,
+nav,
+.hero-actions,
+.status-strip,
+.shot-toolbar {
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  gap: 10px;
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.brand-mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(from 140deg, var(--amber), var(--green), var(--blue), var(--amber));
+  box-shadow: 0 0 0 5px rgba(216, 138, 35, 0.13);
+}
+
+nav {
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+nav a,
+.button {
+  color: inherit;
+  text-decoration: none;
+}
+
+nav a {
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.hero {
+  min-height: calc(100vh - 66px);
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr);
+  align-items: center;
+  gap: clamp(28px, 5vw, 72px);
+  padding: clamp(34px, 6vw, 92px) clamp(18px, 4vw, 56px) 34px;
+}
+
+.hero-copy {
+  max-width: 780px;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--amber);
+  font: 700 0.78rem/1.2 "Avenir Next Condensed", "Arial Narrow", sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-family: "Bodoni 72", Didot, Georgia, serif;
+  line-height: 0.92;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: clamp(4rem, 8vw, 8.4rem);
+  max-width: 10ch;
+}
+
+h2 {
+  font-size: clamp(2.4rem, 5vw, 5.2rem);
+}
+
+.lede {
+  max-width: 620px;
+  color: var(--muted);
+  font-size: clamp(1.08rem, 1.6vw, 1.38rem);
+  line-height: 1.55;
+}
+
+.hero-actions {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.button,
+.shot-toolbar button,
+.terminal button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+
+.button.primary,
+.shot-toolbar .active,
+.terminal button {
+  color: var(--surface);
+  background: var(--ink);
+}
+
+.button.secondary,
+.shot-toolbar button {
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.flight-visual {
+  min-height: 560px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  border: 1px solid rgba(242, 237, 224, 0.14);
+  border-radius: 8px;
+  color: var(--surface);
+  background:
+    radial-gradient(circle at 20% 10%, rgba(95, 155, 104, 0.22), transparent 32%),
+    radial-gradient(circle at 82% 14%, rgba(216, 138, 35, 0.18), transparent 30%),
+    #111714;
+  box-shadow: var(--shadow);
+}
+
+.hud-bar,
+.telemetry-grid {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-color: rgba(242, 237, 224, 0.14);
+}
+
+.hud-bar {
+  border-bottom: 1px solid rgba(242, 237, 224, 0.14);
+}
+
+.hud-bar span,
+.telemetry-grid span {
+  color: rgba(242, 237, 224, 0.62);
+}
+
+.sky-grid {
+  position: relative;
+  min-height: 0;
+  background-image:
+    linear-gradient(90deg, rgba(242, 237, 224, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(242, 237, 224, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.sky-grid svg {
+  width: 100%;
+  height: 100%;
+  min-height: 390px;
+}
+
+.geofence,
+.target circle {
+  fill: rgba(95, 155, 104, 0.08);
+  stroke: rgba(242, 237, 224, 0.34);
+  stroke-width: 2;
+}
+
+.trail {
+  fill: none;
+  stroke: url(#trail);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 18 16;
+  animation: dash 1.8s linear infinite;
+}
+
+.drone {
+  transform: translate(144px, 288px);
+  fill: rgba(242, 237, 224, 0.96);
+  stroke: rgba(242, 237, 224, 0.92);
+  stroke-width: 6;
+  transition: transform 300ms ease;
+}
+
+.target path {
+  stroke: rgba(242, 237, 224, 0.62);
+  stroke-width: 3;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid rgba(242, 237, 224, 0.14);
+}
+
+.telemetry-grid div {
+  display: grid;
+  gap: 4px;
+}
+
+.telemetry-grid strong {
+  font-size: 1.16rem;
+}
+
+.status-strip {
+  gap: 14px;
+  padding: 0 clamp(18px, 4vw, 56px) 56px;
+}
+
+.status-strip article,
+.node-detail,
+.checklist,
+.shot-card,
+.terminal {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 18px 60px rgba(16, 20, 18, 0.1);
+}
+
+.status-strip article {
+  flex: 1;
+  min-height: 170px;
+  padding: 20px;
+}
+
+.status-strip span,
+.shot-card span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.status-strip strong,
+.shot-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.28rem;
+}
+
+.status-strip p,
+.section p,
+.shot-card p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.section {
+  padding: 64px clamp(18px, 4vw, 56px);
+}
+
+.section-heading {
+  max-width: 900px;
+  margin-bottom: 28px;
+}
+
+.architecture {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.node {
+  min-height: 94px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.34);
+  cursor: pointer;
+}
+
+.node.active {
+  color: var(--surface);
+  background: var(--ink);
+}
+
+.node-detail {
+  grid-column: 1 / -1;
+  min-height: 180px;
+  padding: 24px;
+}
+
+.node-detail h3,
+.shot-card h3 {
+  margin: 0 0 10px;
+  font-size: 1.5rem;
+}
+
+.node-detail ul {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.86fr) minmax(360px, 1.14fr);
+  gap: clamp(22px, 5vw, 64px);
+  align-items: start;
+}
+
+.checklist {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+
+.checklist label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.checklist input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--green);
+}
+
+.shot-toolbar {
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.shot-card {
+  min-height: 190px;
+  padding: 18px;
+}
+
+.shot-card[data-sport="snowboard"] {
+  border-color: rgba(77, 127, 159, 0.5);
+}
+
+.shot-card[data-sport="skate"] {
+  border-color: rgba(216, 138, 35, 0.52);
+}
+
+.shot-card[data-sport="moto"] {
+  border-color: rgba(167, 74, 53, 0.5);
+}
+
+.quickstart {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(420px, 1.2fr);
+  gap: 30px;
+  align-items: start;
+}
+
+.terminal {
+  position: relative;
+  overflow: hidden;
+  color: #eaf0df;
+  background: #101412;
+}
+
+.terminal button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+pre {
+  margin: 0;
+  padding: 58px 22px 22px;
+  overflow: auto;
+}
+
+code {
+  font: 0.98rem/1.7 "SF Mono", Menlo, Consolas, monospace;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -34;
+  }
+}
+
+@media (max-width: 980px) {
+  .site-header,
+  .hero,
+  .status-strip,
+  .split,
+  .quickstart {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    min-height: auto;
+  }
+
+  h1 {
+    max-width: 11ch;
+  }
+
+  .flight-visual {
+    min-height: 500px;
+  }
+
+  .shot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  nav {
+    gap: 10px;
+  }
+
+  h1 {
+    font-size: 3.8rem;
+  }
+
+  .telemetry-grid,
+  .architecture,
+  .shot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flight-visual {
+    min-height: 460px;
+  }
+
+  .status-strip article {
+    min-height: auto;
+  }
+}

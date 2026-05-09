@@ -1,0 +1,33 @@
+id: orbit_offboard_freeze
+kind: nature_cinematic
+description: "orbit -> offboard freeze 3 s -> expect HOLD -> resume/RTL"
+backends: [mcp_stdio, mavsdk, telemetry_cache]
+sim:
+  tier: sih
+  world: default
+  px4_model: gz_x500
+  seed: 3
+  speed_factor: 1.0
+preconditions:
+  px4_params: hardware/px4/airframes/x500_v2.params
+  home: { lat: 47.3977, lon: 8.5456, alt_m: 488 }
+  battery_pct: 92
+stages:
+  - { id: takeoff, tool: arm_and_takeoff, args: { altitude_m: 15 },
+      expect: { state: HOVERING } }
+  - { id: goto_orbit_center, tool: goto_gps, args: { lat: 47.3978, lon: 8.5459, alt_m: 18 },
+      expect: { state: HOVERING } }
+  - { id: start_orbit, tool: orbit_target, args: { target_lat: 47.3978, target_lon: 8.5459,
+      radius_m: 10, speed_m_s: 3, duration_s: 60 },
+      async: true }
+injections:
+  - at: { stage: start_orbit, t_offset_s: 10 }
+    driver: offboard_freeze
+    params: { duration_s: 3 }
+assertions:
+  - within_s: 8
+    expect: { state: [HOLD, RTL], reason_contains: offboard }
+  - within_s: 40
+    expect: { state: [OFFBOARD, HOVERING] }
+teardown:
+  collect: [px4_log, flight_recorder_jsonl, guardian_alerts, state_transitions]

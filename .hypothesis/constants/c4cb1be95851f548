@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/heartbeat_service.py
-# hypothesis_version: 6.151.12
-
-[0.0, 0.05, 0.3, 0.5, 1.0, 20.0, 'Emit loop stopped', 'HeartbeatService', 'HeartbeatSource', 'Monitor loop stopped', 'config', 'emit_count', 'guardian', 'heartbeat_hz', 'last_beat_age_s', 'llm', 'missed_beats', 'offboard', 'offboard_timeout_s', 'operator', 'sources', 'state', 'total_beats', 'uptime_s', 'warning_threshold_s']

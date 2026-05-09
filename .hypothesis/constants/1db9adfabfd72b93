@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/state_machine.py
-# hypothesis_version: 6.151.12
-
-[0.0, 0.5, 'abort', 'arm', 'armed', 'critical_battery', 'disarm', 'failsafe', 'geofence_breach', 'ground_contact', 'hold', 'in_air', 'kill', 'kill_switch', 'land', 'landed', 'landing', 'low_battery', 'offboard_timeout', 'position_drift', 'rc_loss', 'return_to_launch', 'set_attitude', 'set_position', 'set_velocity', 'start_mission', 'takeoff', 'telemetry', 'telemetry_sync', 'velocity']

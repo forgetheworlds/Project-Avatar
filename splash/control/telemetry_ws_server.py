@@ -53,7 +53,7 @@ logger = logging.getLogger("splash.telem-ws")
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-WS_HOST = os.environ.get("TELEM_WS_HOST", "0.0.0.0")
+WS_HOST = os.environ.get("TELEM_WS_HOST", "0.0.0.0")  # nosec B104 — drone ground station, accepts PWA connections on local WiFi
 WS_PORT = int(os.environ.get("TELEM_WS_PORT", "8888"))
 PUSH_RATE_HZ = float(os.environ.get("TELEM_PUSH_RATE", "10.0"))  # Hz
 PAYLOAD_PUSH_RATE_HZ = 2.0   # Hz (payloads change slower)

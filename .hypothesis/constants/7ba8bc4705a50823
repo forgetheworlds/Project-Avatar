@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/guardian_async.py
-# hypothesis_version: 6.151.12
-
-[0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 10.0, 75.0, 80.0, 85.0, 100, 'AsyncGuardian', 'armed', 'connection_unhealthy', 'critical', 'critical_battery', 'emergency_stop', 'failsafe', 'heartbeat', 'hold', 'in_air', 'inf', 'kill_switch', 'land', 'landed', 'network', 'offboard_timeout', 'rc_loss', 'resource', 'return_to_launch', 'state_consistency', 'telemetry_stale', 'vio_invalid', 'vio_sanity', 'warning']

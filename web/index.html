@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Avatar</title>
+    <meta
+      name="description"
+      content="Project Avatar is an LLM-driven autonomous drone controlled through MCP-compatible AI agents, PX4, Kimi K2.5, and SITL validation."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23101412'/%3E%3Cpath d='M14 32h36M32 14v36' stroke='%23d88a23' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='9' fill='%235f9b68'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Project Avatar home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Project Avatar</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#architecture">Architecture</a>
+        <a href="#validation">Validation</a>
+        <a href="#cinema">Cinematic Shots</a>
+        <a href="#quickstart">Quickstart</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section id="top" class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">First-flight-ready v0.5.0</p>
+          <h1>Natural-language autonomy for a PX4 drone.</h1>
+          <p class="lede">
+            Project Avatar connects any MCP-compatible AI agent to a PX4 flight stack, using cloud Kimi K2.5 for mission planning and simulation gates before hardware risk.
+          </p>
+          <div class="hero-actions" aria-label="Primary project actions">
+            <a class="button primary" href="#quickstart">Run SIH smoke</a>
+            <a class="button secondary" href="#architecture">Inspect stack</a>
+          </div>
+        </div>
+
+        <div class="flight-visual" aria-label="Project Avatar flight path visualization">
+          <div class="hud-bar">
+            <span>MCP link</span>
+            <strong id="hud-link">online</strong>
+          </div>
+          <div class="sky-grid">
+            <svg viewBox="0 0 720 440" role="img" aria-label="Drone orbit path over geofence">
+              <defs>
+                <linearGradient id="trail" x1="0" x2="1">
+                  <stop offset="0" stop-color="#ffb84d" />
+                  <stop offset="1" stop-color="#6bd1a3" />
+                </linearGradient>
+              </defs>
+              <path class="geofence" d="M95 285 C130 120 275 65 430 88 C590 112 664 245 594 343 C510 456 250 417 95 285Z" />
+              <path class="trail" d="M144 288 C210 176 320 137 455 151 C566 164 608 252 559 313 C490 399 270 378 144 288Z" />
+              <g class="drone" id="drone-icon">
+                <circle cx="0" cy="0" r="16" />
+                <path d="M-45 0H45M0-45V45" />
+                <circle cx="-45" cy="0" r="10" />
+                <circle cx="45" cy="0" r="10" />
+                <circle cx="0" cy="-45" r="10" />
+                <circle cx="0" cy="45" r="10" />
+              </g>
+              <g class="target">
+                <circle cx="360" cy="232" r="34" />
+                <path d="M326 232h68M360 198v68" />
+              </g>
+            </svg>
+          </div>
+          <div class="telemetry-grid">
+            <div><span>Mode</span><strong id="mode">SITL_ORBIT</strong></div>
+            <div><span>Alt</span><strong><b id="altitude">22.0</b> m</strong></div>
+            <div><span>Speed</span><strong><b id="speed">4.8</b> m/s</strong></div>
+            <div><span>Battery</span><strong><b id="battery">96</b>%</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="status-strip" aria-label="Current status">
+        <article>
+          <span>Status</span>
+          <strong>Wave 4 gate pending</strong>
+          <p>Hardware preflight is blocked until HITL and MCP/SITL smoke checks pass.</p>
+        </article>
+        <article>
+          <span>Core Path</span>
+          <strong>Agent → MCP → Guardian → PX4</strong>
+          <p>Flight tools route through server-owned controls and safety validation.</p>
+        </article>
+        <article>
+          <span>Why Sim First</span>
+          <strong>Crash software before hardware</strong>
+          <p>Validate mission logic in Docker SIH and SITL before buying or flying parts.</p>
+        </article>
+      </section>
+
+      <section id="architecture" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Architecture 2.0</p>
+          <h2>Agent-agnostic flight stack</h2>
+        </div>
+        <div class="architecture" aria-label="System architecture">
+          <button class="node active" data-node="agent">MCP Agent</button>
+          <button class="node" data-node="ground">Ground Station</button>
+          <button class="node" data-node="safety">Guardian</button>
+          <button class="node" data-node="flight">PX4 / SITL</button>
+          <article class="node-detail" id="node-detail" aria-live="polite"></article>
+        </div>
+      </section>
+
+      <section id="validation" class="section split">
+        <div>
+          <p class="eyebrow">Verification Gates</p>
+          <h2>Phase 0.5 is only done when the real path passes.</h2>
+          <p>
+            The README is explicit: mock demos are not enough. MCP stdio discovery and end-to-end SITL flight smoke tests are the completion boundary.
+          </p>
+        </div>
+        <div class="checklist">
+          <label><input type="checkbox" checked /> Real MCP stdio discovery works offline</label>
+          <label><input type="checkbox" checked /> Core calls route through server FlightTools</label>
+          <label><input type="checkbox" checked /> Guardian actions call RTL, Land, and Hold</label>
+          <label><input type="checkbox" /> Gazebo camera frames feed vision backend</label>
+          <label><input type="checkbox" /> Runner, sailboat, nature, indoor scenarios complete</label>
+        </div>
+      </section>
+
+      <section id="cinema" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Cinematic Shot System</p>
+          <h2>Sixteen templates, tuned for action sports.</h2>
+        </div>
+        <div class="shot-toolbar" role="tablist" aria-label="Cinematic shot filters">
+          <button class="active" data-filter="all" role="tab">All</button>
+          <button data-filter="snowboard" role="tab">Snowboard</button>
+          <button data-filter="skate" role="tab">Skate</button>
+          <button data-filter="moto" role="tab">Moto</button>
+          <button data-filter="general" role="tab">General</button>
+        </div>
+        <div class="shot-grid" id="shot-grid" aria-live="polite"></div>
+      </section>
+
+      <section id="quickstart" class="section quickstart">
+        <div>
+          <p class="eyebrow">Quickstart</p>
+          <h2>Docker SIH in three commands</h2>
+        </div>
+        <div class="terminal" aria-label="Quickstart commands">
+          <button id="copy-command" type="button">Copy</button>
+          <pre><code>./scripts/sim.sh sih
+./scripts/sim.sh scenario smoke_failsafe_rtl
+./scripts/sim.sh down</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

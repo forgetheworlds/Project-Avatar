@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mcp_server/tools/__init__.py
-# hypothesis_version: 6.151.12
-
-['FlightTools', 'FlightToolsConfig', 'TelemetryTools', 'TelemetryToolsConfig', 'VisionTools', 'VisionToolsConfig', 'abort_mission', 'arm_and_takeoff', 'capture_frame', 'get_battery_status', 'get_detected_objects', 'get_guardian', 'get_state_machine', 'get_status', 'get_status_tool', 'get_telemetry', 'get_telemetry_cache', 'goto_gps', 'haversine_distance', 'hold', 'land', 'rtl', 'set_guardian', 'set_state_machine', 'set_telemetry_cache', 'set_velocity']

@@ -1,0 +1,28 @@
+id: mcp_tool_storm
+kind: skate_bowl
+description: "MCP tool-storm 100 cmd/s -> expect no offboard timeout, guardian stable"
+backends: [mcp_stdio, mavsdk, telemetry_cache]
+sim:
+  tier: sih
+  world: default
+  px4_model: gz_x500
+  seed: 404
+  speed_factor: 1.0
+preconditions:
+  px4_params: hardware/px4/airframes/x500_v2.params
+  home: { lat: 47.3977, lon: 8.5456, alt_m: 488 }
+  battery_pct: 100
+stages:
+  - { id: takeoff, tool: arm_and_takeoff, args: { altitude_m: 10 },
+      expect: { state: HOVERING } }
+  - { id: enter_offboard, tool: set_velocity_body, args: { forward: 0.0, right: 0.0, down: 0.0, yawspeed: 0.0, duration_s: 1 },
+      expect: { state: OFFBOARD } }
+  - { id: tool_storm, tool: noop_high_rate_commands, args: { rate_hz: 100, duration_s: 15, mix_get_telemetry: true },
+      expect: { offboard_stale_ms: { lt: 400 } } }
+assertions:
+  - within_s: 20
+    expect: { state: OFFBOARD, guardian_alerts_max: { lte: 1 } }
+  - eventually:
+    expect: { landed: true }
+teardown:
+  collect: [px4_log, flight_recorder_jsonl, guardian_alerts, state_transitions]

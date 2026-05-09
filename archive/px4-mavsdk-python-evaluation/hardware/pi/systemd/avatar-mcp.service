@@ -1,0 +1,52 @@
+# Avatar MCP Server Service
+#
+# NOTE: This service is DISABLED BY DEFAULT.
+# Enable manually when ready to expose the MCP API:
+#   sudo systemctl enable avatar-mcp.service
+#   sudo systemctl start avatar-mcp.service
+#
+# The MCP server provides the agent API and should only be enabled
+# when the drone is configured and connected to a trusted network.
+
+[Unit]
+Description=Avatar MCP Server (Model Context Protocol API)
+Documentation=https://modelcontextprotocol.io
+After=network-online.target avatar-mavlink-bridge.service avatar-heartbeat.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=avatar
+Group=avatar
+WorkingDirectory=/opt/avatar
+
+ExecStart=/opt/avatar/.venv/bin/python -m avatar.mcp_server
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=avatar-mcp
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+# Network access required for MCP API
+PrivateNetwork=false
+
+# Resource limits
+LimitNOFILE=256
+MemoryMax=1G
+CPUQuota=50%
+
+# Environment
+Environment="AVATAR_MCP_TRANSPORT=stdio"
+Environment="AVATAR_LOG_LEVEL=INFO"
+
+[Install]
+# Intentionally not installed - see note above
+# WantedBy=multi-user.target

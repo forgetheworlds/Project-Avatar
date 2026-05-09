@@ -1,0 +1,37 @@
+[Unit]
+Description=Avatar Heartbeat Service (telemetry broadcast and health monitoring)
+Documentation=https://github.com/Auterion/MAVSDK
+After=network-online.target avatar-mavlink-bridge.service
+Wants=network-online.target
+Requires=avatar-mavlink-bridge.service
+
+[Service]
+Type=simple
+User=avatar
+Group=dialout
+WorkingDirectory=/opt/avatar
+
+ExecStart=/opt/avatar/.venv/bin/python -m avatar.mav.heartbeat_service
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=avatar-heartbeat
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/opt/avatar
+
+# Resource limits
+MemoryMax=256M
+
+# Environment
+Environment="AVATAR_CONFIG=/opt/avatar/config/profiles"
+Environment="MAVSDK_UDP=udp://:14540"
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,33 @@
+[Unit]
+Description=Avatar MAVLink Bridge (mavsdk_server + mavlink-router)
+Documentation=https://github.com/Auterion/MAVSDK
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=avatar
+Group=dialout
+WorkingDirectory=/opt/avatar
+
+ExecStart=/opt/avatar/hardware/pi/bootstrap/run-mavlink-bridge.sh
+Restart=always
+RestartSec=2
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/avatar
+
+# Resource limits
+LimitNOFILE=1024
+MemoryMax=512M
+
+# Environment
+Environment="MAVSDK_SERVER_PATH=/opt/mavsdk/mavsdk_server"
+Environment="MAVSDK_UDP_PORT=14540"
+Environment="PX4_SERIAL=/dev/pixhawk"
+
+[Install]
+WantedBy=multi-user.target

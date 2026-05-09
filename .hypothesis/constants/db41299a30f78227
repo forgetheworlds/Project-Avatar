@@ -1,4 +1,0 @@
-# file: /Users/muadhsambul/Downloads/Project-Avatar/avatar/mav/escalation_matrix.py
-# hypothesis_version: 6.151.12
-
-[0.0, 2.0, 5.0, 10.0, 20.0, 25.0, 30.0, 50.0, 100, 'assume_control_hold', 'battery', 'battery_critical', 'battery_low', 'battery_percent', 'battery_warning', 'comm_link_degraded', 'comm_link_lost', 'distance', 'distance_m', 'emergency_disarm', 'engine_failure', 'force_trigger', 'geofence_breach', 'geofence_warning', 'gps_degraded', 'heartbeat', 'heartbeat_age_s', 'heartbeat_warning', 'initiate_land', 'initiate_rtl', 'log_alert', 'mode_change_fail', 'reject_command', 'remaining_m', 'state_inconsistency', 'telemetry_stale', 'timeout_duration_s', 'timeout_triggered', 'total_power_loss', 'total_system_failure', 'uncontrolled_descent']

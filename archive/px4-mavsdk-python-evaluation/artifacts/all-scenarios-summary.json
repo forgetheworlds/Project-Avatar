@@ -1,0 +1,19 @@
+{"scenarios": [
+    {"id": "search_acquire_follow_vision_dropout", "exit_code": 1, "duration_s": 0, "artifact": ""},
+    {"id": "gps_jam_expect_rtl", "exit_code": 1, "duration_s": 1, "artifact": ""},
+    {"id": "runner_follow_wind_gust", "exit_code": 1, "duration_s": 0, "artifact": ""},
+    {"id": "orbit_offboard_freeze", "exit_code": 1, "duration_s": 1, "artifact": ""},
+    {"id": "cinematic_reveal_battery_critical", "exit_code": 1, "duration_s": 1, "artifact": ""},
+    {"id": "depth_room_obstacle_abort", "exit_code": 1, "duration_s": 0, "artifact": ""},
+    {"id": "sailboat_follow_altitude_floor", "exit_code": 1, "duration_s": 1, "artifact": ""},
+    {"id": "mcp_tool_storm", "exit_code": 1, "duration_s": 0, "artifact": ""},
+    {"id": "acrobatic_corkscrew_battery_drop", "exit_code": 1, "duration_s": 1, "artifact": ""},
+    {"id": "geofence_adjacent_goto_reject", "exit_code": 1, "duration_s": 0, "artifact": ""},
+    {"id": "companion_fc_partition_recover", "exit_code": 1, "duration_s": 1, "artifact": ""},
+    {"id": "flight_recorder_replay_diff", "exit_code": 1, "duration_s": 0, "artifact": ""}
+  ],
+  "passed": 0,
+  "failed": 12,
+  "total": 12,
+  "status": "complete"
+}

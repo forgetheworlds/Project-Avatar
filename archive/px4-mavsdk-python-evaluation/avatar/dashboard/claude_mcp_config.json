@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "avatar-drone": {
+      "command": "/Users/muadhsambul/Downloads/Project-Avatar/.venv/bin/python",
+      "args": [
+        "-m",
+        "avatar.mcp_server"
+      ],
+      "env": {
+        "PYTHONPATH": "/Users/muadhsambul/Downloads/Project-Avatar",
+        "AVATAR_CONNECT_ON_START": "0",
+        "AVATAR_SYSTEM_ADDRESS": "udp://:14540"
+      }
+    }
+  }
+}
