@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  # ArduPilot SITL (when running locally)
+  sitl:
+    image: ardupilot/ardupilot-sitl:latest
+    container_name: avatar-sitl
+    ports:
+      - "14551:14551/udp"
+    command: >
+      sim_vehicle.py -v ArduCopter
+      --location=Mississauga
+      --console --map
+    profiles:
+      - sim
+
+  # MCP Tool Server (LLM → drone bridge)
+  mcp:
+    build: .
+    container_name: avatar-mcp
+    ports:
+      - "8000:8000"
+      - "8888:8888"
+    environment:
+      - SIM_MODE=true
+      - SIM_HOST=sitl
+      - SIM_PORT=14551
+    depends_on:
+      - sitl
+    restart: unless-stopped
+    command: python3 splash/control/mcp_server.py
+
+  # Telemetry WebSocket Server (for PWA)
+  telemetry:
+    build: .
+    container_name: avatar-telemetry
+    ports:
+      - "8888:8888"
+    environment:
+      - SIM_MODE=true
+      - SIM_HOST=sitl
+      - SIM_PORT=14551
+      - TELEM_WS_PORT=8888
+    depends_on:
+      - sitl
+    restart: unless-stopped
+    command: python3 -m splash.control.telemetry_ws_server --with-mavlink
+
+  # PWA Frontend
+  pwa:
+    build:
+      context: ./pwa
+      dockerfile: Dockerfile
+    container_name: avatar-pwa
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_WS_URL=ws://telemetry:8888/telemetry
+      - VITE_MCP_URL=http://mcp:8000
+    depends_on:
+      - telemetry
+      - mcp
+    restart: unless-stopped
+    profiles:
+      - full
