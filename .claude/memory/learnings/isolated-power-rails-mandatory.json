@@ -1,0 +1,20 @@
+{
+  "learning_id": "isolated-power-rails-mandatory",
+  "type": "electrical_requirement",
+  "title": "Isolated Power Rails for Pump and Servos are MANDATORY — Every Project That Didn't Do This Failed",
+  "context": "Splash has multiple power consumers: FC, GPS, ESP32, RX, camera, 2× servos, pump. Running all from FC regulator will cause brownouts.",
+  "what_was_found": "Every single water gun turret/drone project documented reports the same failure: powering the water pump or servos from the same regulator as the MCU causes brownouts, boot loops, or fried regulators. The pump inrush (2-3A for <100ms) and servo stall current combine to create voltage sags below the MCU's minimum voltage. The dave-ct project uses 3 separate buck converters (5V for Pi, 5V for servos, 12V for pump) with a 470µF capacitor on the pump motor. The ESP32-CAM project uses dedicated 5V 2A regulator for the ESP32 and separate battery power for the pump.",
+  "recommended_architecture": [
+    "Single 4S battery source → split into power rails:",
+    "Rail 1: FC BEC → FC + GPS + RX + ESP32 (~550mA base)",
+    "Rail 2: Dedicated 5V BEC → PCA9685 + 2× MG90S servos (up to 2A stall)",
+    "Rail 3: Dedicated 12V boost/BEC → water pump via MOSFET switch (2-3A inrush)",
+    "1000µF low-ESR capacitor on battery leads (35V rated)",
+    "470µF capacitor across pump motor terminals"
+  ],
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:35:00Z",
+  "applies_to": ["splash-water-gun-drone", "power-management", "electrical", "safety"],
+  "source": "Hour 7 Competitor Analysis — dave-ct, ESP32-CAM water gun, Google AI Mode, Oscar Liang",
+  "action": "Design power distribution PCB or wiring harness with 3 isolated rails. Bench test all loads simultaneously — verify FC voltage never dips below 4.8V."
+}

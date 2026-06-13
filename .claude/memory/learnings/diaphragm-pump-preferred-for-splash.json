@@ -1,0 +1,17 @@
+{
+  "learning_id": "diaphragm-pump-preferred-for-splash",
+  "type": "component_selection",
+  "title": "Diaphragm Pump Preferred Over Centrifugal for Splash Water Gun — Self-Priming, High Pressure, Dry-Run Safe",
+  "context": "Splash needs a micro pump for water gun payload (~15g, 12V, controllable). Pump type affects stream quality, reliability, and weight.",
+  "what_was_found": "Agricultural spray drone engineering literature and competitor builds converge on the same conclusion: diaphragm pumps are superior for burst-fire water gun applications. Centrifugal pumps lack self-priming (fail if air enters line), lose pressure at low flow rates, and can't run dry. Diaphragm pumps are self-priming, handle air in line, run dry without damage, and deliver high-pressure pulses ideal for water gun bursts. Peristaltic pumps are precise but produce gentler flow — not ideal for maximum stream distance.",
+  "comparison": {
+    "diaphragm": "Self-priming ✅, dry-run safe ✅, high pressure ✅, pulsed flow ✅, ~15g — BEST for Splash",
+    "centrifugal": "No self-priming ❌, fails with air ❌, low pressure at low flow ❌, continuous flow, ~12g — AVOID",
+    "peristaltic": "Self-priming ✅, dry-run safe ✅, low pressure ❌, precise dosing, ~20g — only for precision, not range"
+  },
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:35:00Z",
+  "applies_to": ["splash-water-gun-drone", "water-pump", "payload", "component-selection"],
+  "source": "Hour 7 Competitor Analysis — Agricultural drone literature + dave-ct/ai_object_plus_water pump teardown analysis",
+  "action": "Source 12V micro diaphragm pump (e.g., HiLetgo 240L/H 4.2W or similar). Verify self-priming behavior and stream distance at 12V before integration."
+}

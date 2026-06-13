@@ -1,0 +1,13 @@
+{
+  "learning_id": "water-pump-ballistics-brownout-risk",
+  "type": "physics_estimate",
+  "title": "Micro Water Pump: ~3m Effective Range at 12V, Brownout Risk Confirmed",
+  "context": "Splash water gun drone needs effective stream range from safe altitude (>2m). Pump inrush current could brownout FC mid-flight.",
+  "what_was_found": "Physics estimate: 2mm nozzle at 1 L/min = 5.3 m/s exit velocity, ~3m horizontal range at 30° downward from 2m altitude. Pump inrush: 2-3A for <100ms. During motor flight (4 motors at 5-10A each), system draw could sag battery below FC minimum.",
+  "mitigation": "1000µF capacitor on 12V payload rail to buffer inrush. If FC voltage dips >0.5V, add dedicated 12V boost from battery. 3D-printed 2mm converging nozzle improves stream coherence 30-50%.",
+  "confidence": "medium",
+  "extracted_at": "2026-05-22T23:27:00Z",
+  "applies_to": ["splash-water-gun-drone", "payload", "power-management", "safety"],
+  "source": "Nightly Research 2026-05-22, Finding 4",
+  "action": "GROUND TEST MANDATORY: measure steady-state current, inrush (oscilloscope), stream distance at 12V, coherence at 1m/2m/3m."
+}

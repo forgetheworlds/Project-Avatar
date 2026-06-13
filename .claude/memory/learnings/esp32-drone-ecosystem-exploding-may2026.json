@@ -1,0 +1,13 @@
+{
+  "learning_id": "esp32-drone-ecosystem-exploding-may2026",
+  "type": "ecosystem_trend",
+  "title": "ESP32 Drone Ecosystem is Exploding in May 2026",
+  "context": "5 new ESP32 drone projects discovered on GitHub with active development in May 2026. Previously, the ecosystem was sparse.",
+  "what_was_found": "New projects: sergiovirahonda/cortex (132 stars, DShot600+LiDAR), songge8/CF-Drone (106 stars, web remote), ElektroJonas/DIY-Quadcopter (57 stars, academic PID+Kalman), cifertech/ESP32-Drone (22 stars, browser UI), ace-cooper/AceMicroFlyer (21 stars, ESP32-C3). Emerging standard: dual-core FreeRTOS + WiFi/WebSocket at 20Hz. Web-based ground stations are winning.",
+  "gap_identified": "No ESP32 autonomous waypoint navigation project exists. Avatar could be first to implement GPS waypoint navigation on ESP32.",
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:27:00Z",
+  "applies_to": ["avatar-drone", "esp32", "ecosystem", "competitive-landscape"],
+  "source": "Discovery Report 2026-05-22",
+  "action": "Study cortex architecture (dual-core + DShot600). Evaluate CF-Drone's web remote pattern. Consider ESP-NOW vs WiFi for control link."
+}

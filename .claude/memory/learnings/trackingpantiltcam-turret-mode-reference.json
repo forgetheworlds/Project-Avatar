@@ -1,0 +1,20 @@
+{
+  "learning_id": "trackingpantiltcam-turret-mode-reference",
+  "type": "code_reference",
+  "title": "maxboels/TrackingPanTiltCam — Production-Ready YOLOv8 Turret Codebase for Splash Adaptation",
+  "context": "Splash needs computer vision tracking with auto-aim for person targeting. The maxboels/TrackingPanTiltCam project provides a complete, tested implementation.",
+  "what_was_found": "This GitHub repo implements YOLOv8 person detection with Kalman filtering, PCA9685 servo control (16-channel I2C), motion compensation to prevent feedback loops, and TWO tracking modes: Surveillance (smooth, keep in frame) and Turret (precision center-of-bounding-box aiming). Turret mode uses shorter history (3 positions), exponential weighting, responsive Kalman. Motion compensation distinguishes real target motion from camera-induced apparent motion.",
+  "key_features": [
+    "Turret mode — exactly what Splash needs for auto-aim at center of bounding box",
+    "Kalman filtering — predicts positions during occlusions, reduces jitter",
+    "Motion compensation — prevents feedback loops when camera moves",
+    "PCA9685 — same controller planned for Splash",
+    "Performance logging + evaluation system — crucial for Splash testing",
+    "Synthetic benchmarking for reproducible experiments"
+  ],
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:35:00Z",
+  "applies_to": ["splash-water-gun-drone", "computer-vision", "auto-aim", "servo-control"],
+  "source": "Hour 7 Competitor Analysis — GitHub maxboels/TrackingPanTiltCam direct fetch",
+  "action": "Clone repo and study turret mode adaptation. Key files: main.py, src/tracking/, config/config.json. Adapt PCA9685 bridge for Splash's ESP32 instead of Arduino."
+}

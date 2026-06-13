@@ -2,18 +2,28 @@
 main.py — Full CV pipeline for Splash water gun drone.
 
 Ties together:
-  • Webcam capture
-  • YOLOv8 person detection + HSV colour filtering
+  • Webcam capture or ESP32-CAM WiFi stream
+  • YOLO person detection + LAB/HSV colour filtering
   • ByteTrack multi-object tracking
+  • Motion compensation via IMU gyro homography (for drone ego-motion)
   • Targeting (servo angles, distance, fire command)
   • State machine: IDLE → DETECT → TRACK → AIM → FIRE
   • Annotated video output (saved to disk)
+  • Protection mode integration
+
+Motion Compensation:
+  Uses MAVLink ATTITUDE messages (roll/pitch/yaw) from the drone's IMU
+  to compute a camera homography, stabilizing pixel coordinates before
+  target tracking. This prevents the turret from oscillating due to
+  drone ego-motion during flight.
 
 Usage:
   python main.py                          # webcam, show preview
   python main.py --no-preview             # webcam, headless
   python main.py --video input.mp4        # process video file
   python main.py --target-team team_a    # only fire on team_a
+  python main.py --coreml                 # use CoreML on MacBook M3
+  python main.py --motion-comp            # enable motion compensation (drone mode)
 
 Project Avatar — Splash water gun drone CV pipeline.
 """
@@ -26,13 +36,184 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import cv2
+import numpy as np
 
-from detector import PersonDetector, HSVColorClassifier
+from detector import PersonDetector, LABColorClassifier, HSVColorClassifier
 from tracker import ByteTracker, KalmanBoxTracker
 from targeting import TargetingEngine, AimConfig, TargetInfo
+
+
+# ---------------------------------------------------------------------------
+# Motion Compensator — IMU gyro homography
+# ---------------------------------------------------------------------------
+
+class MotionCompensator:
+    """Compensates for drone ego-motion using IMU gyro data.
+
+    When the drone flies, its roll/pitch/yaw changes cause the camera
+    view to shift. Without compensation, the CV pipeline sees targets
+    moving even when they're stationary, causing the turret to oscillate.
+
+    This class computes a homography matrix H that warps the current
+    frame into a stabilized coordinate system.
+
+    H = K @ R @ K_inv
+
+    Where:
+      K = camera intrinsic matrix (from calibration)
+      R = rotation matrix from IMU attitude (delta from reference)
+
+    Usage:
+        compensator = MotionCompensator(
+            camera_matrix=camera_K,
+            image_size=(640, 480)
+        )
+        stabilised_frame = compensator.stabilize(frame, roll_deg, pitch_deg, yaw_deg)
+    """
+
+    def __init__(
+        self,
+        camera_matrix: Optional[np.ndarray] = None,
+        image_size: Tuple[int, int] = (640, 480),
+        enable: bool = False,
+    ) -> None:
+        self.enable = enable
+        self.image_size = image_size
+
+        # Default camera matrix (assume 70° HFOV, 50° VFOV, 640x480)
+        if camera_matrix is not None:
+            self.K = camera_matrix
+        else:
+            # Reasonable default for 640x480, 70° HFOV camera
+            fx = image_size[0] / (2 * np.tan(np.radians(70 / 2)))
+            fy = image_size[1] / (2 * np.tan(np.radians(50 / 2)))
+            cx = image_size[0] / 2
+            cy = image_size[1] / 2
+            self.K = np.array([
+                [fx, 0, cx],
+                [0, fy, cy],
+                [0,  0,  1],
+            ], dtype=np.float32)
+
+        self.K_inv = np.linalg.inv(self.K)
+
+        # Reference attitude (set on first frame)
+        self.ref_roll: float = 0.0
+        self.ref_pitch: float = 0.0
+        self.ref_yaw: float = 0.0
+        self._initialized = False
+
+    def set_reference(self, roll_deg: float, pitch_deg: float, yaw_deg: float) -> None:
+        """Set the reference attitude (usually from first frame or hover)."""
+        self.ref_roll = roll_deg
+        self.ref_pitch = pitch_deg
+        self.ref_yaw = yaw_deg
+        self._initialized = True
+
+    def reset(self) -> None:
+        """Reset reference to current frame."""
+        self._initialized = False
+
+    def stabilize_frame(
+        self,
+        frame: np.ndarray,
+        roll_deg: float,
+        pitch_deg: float,
+        yaw_deg: float,
+    ) -> np.ndarray:
+        """Warp frame to compensate for IMU attitude change.
+
+        Returns the stabilized frame (same size).
+        If not enabled or not initialized, returns original frame.
+        """
+        if not self.enable:
+            return frame
+
+        if not self._initialized:
+            self.set_reference(roll_deg, pitch_deg, yaw_deg)
+            return frame
+
+        # Compute delta rotation
+        d_roll = np.radians(roll_deg - self.ref_roll)
+        d_pitch = np.radians(pitch_deg - self.ref_pitch)
+        d_yaw = np.radians(yaw_deg - self.ref_yaw)
+
+        # Rotation matrices (Z-Y-X Euler)
+        Rx = np.array([
+            [1, 0, 0],
+            [0, np.cos(d_roll), -np.sin(d_roll)],
+            [0, np.sin(d_roll), np.cos(d_roll)],
+        ])
+        Ry = np.array([
+            [np.cos(d_pitch), 0, np.sin(d_pitch)],
+            [0, 1, 0],
+            [-np.sin(d_pitch), 0, np.cos(d_pitch)],
+        ])
+        Rz = np.array([
+            [np.cos(d_yaw), -np.sin(d_yaw), 0],
+            [np.sin(d_yaw), np.cos(d_yaw), 0],
+            [0, 0, 1],
+        ])
+
+        R = Rz @ Ry @ Rx
+
+        # Homography: H = K @ R @ K_inv
+        H = self.K @ R @ self.K_inv
+
+        h, w = frame.shape[:2]
+        stabilized = cv2.warpPerspective(frame, H, (w, h),
+                                         borderMode=cv2.BORDER_REPLICATE)
+        return stabilized
+
+    def stabilize_points(
+        self,
+        points: np.ndarray,
+        roll_deg: float,
+        pitch_deg: float,
+        yaw_deg: float,
+    ) -> np.ndarray:
+        """Apply motion compensation to pixel coordinates.
+
+        Args:
+            points: N×2 array of (x, y) pixel coordinates
+            roll_deg, pitch_deg, yaw_deg: current IMU attitude
+
+        Returns:
+            N×2 array of compensated pixel coordinates
+        """
+        if not self.enable or not self._initialized:
+            return points
+
+        d_roll = np.radians(roll_deg - self.ref_roll)
+        d_pitch = np.radians(pitch_deg - self.ref_pitch)
+        d_yaw = np.radians(yaw_deg - self.ref_yaw)
+
+        Rx = np.array([
+            [1, 0, 0],
+            [0, np.cos(d_roll), -np.sin(d_roll)],
+            [0, np.sin(d_roll), np.cos(d_roll)],
+        ])
+        Ry = np.array([
+            [np.cos(d_pitch), 0, np.sin(d_pitch)],
+            [0, 1, 0],
+            [-np.sin(d_pitch), 0, np.cos(d_pitch)],
+        ])
+        Rz = np.array([
+            [np.cos(d_yaw), -np.sin(d_yaw), 0],
+            [np.sin(d_yaw), np.cos(d_yaw), 0],
+            [0, 0, 1],
+        ])
+        R = Rz @ Ry @ Rx
+        H = self.K @ R @ self.K_inv
+
+        # Transform points
+        pts_h = cv2.perspectiveTransform(
+            points.reshape(-1, 1, 2).astype(np.float32), H
+        )
+        return pts_h.reshape(-1, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -179,18 +360,38 @@ class SplashCVPipeline:
         tracker_low: float = 0.2,
         output_video: Optional[str] = None,
         show_preview: bool = True,
+        model_path: str = "yolov8n.pt",
+        use_coreml: bool = False,
+        motion_comp: bool = False,
     ) -> None:
         self.target_team = target_team
         self.show_preview = show_preview
 
+        # Model backend selection
+        if use_coreml:
+            model_path = model_path.replace(".pt", ".mlpackage")
+            if model_path == model_path.replace(".pt", ".mlpackage"):
+                model_path = "yolo11n.mlpackage"
+
         # Modules
-        self.detector = PersonDetector(confidence_threshold=detector_conf)
+        self.detector = PersonDetector(
+            model_path=model_path,
+            backend="coreml" if use_coreml else "auto",
+            confidence_threshold=detector_conf,
+            use_lab=True,  # LAB color space for outdoor
+        )
         self.tracker = ByteTracker(
             track_high_thresh=tracker_high,
             track_low_thresh=tracker_low,
         )
         self.aim_cfg = aim_config or AimConfig()
         self.targeting = TargetingEngine(self.aim_cfg)
+
+        # Motion compensation
+        self.motion_comp = MotionCompensator(
+            enable=motion_comp,
+            image_size=(self.aim_cfg.frame_width, self.aim_cfg.frame_height)
+        )
 
         # State
         self.state = PipelineState()
@@ -203,16 +404,48 @@ class SplashCVPipeline:
     # Public API
     # ------------------------------------------------------------------
 
-    def process_frame(self, frame) -> Optional[List[TargetInfo]]:
-        """Run one frame through the full pipeline. Returns target info list."""
+    def process_frame(self, frame, roll_deg: float = 0.0,
+                     pitch_deg: float = 0.0, yaw_deg: float = 0.0) -> Optional[List[TargetInfo]]:
+        """Run one frame through the full pipeline. Returns target info list.
+
+        Args:
+            frame: BGR image frame
+            roll_deg, pitch_deg, yaw_deg: Current drone IMU attitude (for motion comp)
+        """
         frame = self._ensure_bgr(frame)
         h, w = frame.shape[:2]
         self.aim_cfg.frame_width = w
         self.aim_cfg.frame_height = h
 
+        # Update motion compensator image size
+        self.motion_comp.image_size = (w, h)
+
+        # --- Step 0: Motion compensation (drone mode) ---
+        if self.motion_comp.enable:
+            self.motion_comp.set_reference(roll_deg, pitch_deg, yaw_deg)
+
         # --- Step 1: Detect ---
         detections = self.detector.detect(frame)
         self.state.current = State.DETECT
+
+        # Apply motion compensation to detection centers
+        if self.motion_comp.enable and self.motion_comp._initialized and detections:
+            for det in detections:
+                cx, cy = det.center
+                compensated = self.motion_comp.stabilize_points(
+                    np.array([[cx, cy]]),
+                    roll_deg, pitch_deg, yaw_deg
+                )
+                # Shift bbox by compensated offset
+                new_cx, new_cy = compensated[0]
+                dx = new_cx - cx
+                dy = new_cy - cy
+                det.bbox = (
+                    int(det.bbox[0] + dx),
+                    int(det.bbox[1] + dy),
+                    int(det.bbox[2] + dx),
+                    int(det.bbox[3] + dy),
+                )
 
         # --- Step 2: Track ---
         tracks = self.tracker.update(detections)
@@ -412,6 +645,10 @@ def main() -> None:
                         help="Save annotated output to video file")
     parser.add_argument("--detector-conf", type=float, default=0.4,
                         help="Detection confidence threshold")
+    parser.add_argument("--coreml", action="store_true",
+                        help="Use CoreML backend (MacBook M3 ANE)")
+    parser.add_argument("--motion-comp", action="store_true",
+                        help="Enable motion compensation (drone mode)")
     parser.add_argument("--hfov", type=float, default=70.0,
                         help="Camera horizontal FOV (degrees)")
     parser.add_argument("--vfov", type=float, default=50.0,
@@ -434,6 +671,8 @@ def main() -> None:
         detector_conf=args.detector_conf,
         output_video=args.output,
         show_preview=not args.no_preview,
+        use_coreml=args.coreml,
+        motion_comp=args.motion_comp,
     )
 
     pipeline.start_capture(source)

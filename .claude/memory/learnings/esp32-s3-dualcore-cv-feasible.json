@@ -1,0 +1,13 @@
+{
+  "learning_id": "esp32-s3-dualcore-cv-feasible",
+  "type": "architecture_validation",
+  "title": "ESP32-S3 Dual-Core FreeRTOS: MAVLink Bridge + Onboard CV is Feasible",
+  "context": "Avatar's ESP32-S3 is currently a serial-to-UDP bridge only, using ~5% CPU. It has 8MB PSRAM and AI acceleration unused.",
+  "what_was_found": "esp32-flight-controller proves FreeRTOS dual-core on ESP32: Core 0 (sensors/status), Core 1 (motor PID at 50Hz, radio at 500Hz, GPS at 1Hz). esp-drone flow deck runs PMW3901 at 100-200Hz consuming ~5-10% CPU. ESP32-S3 has 2x compute + ESP-NN AI acceleration (7.2x convolution speedup).",
+  "proposed_architecture": "Core 0: WiFi + UDP + MAVLink + WebSocket. Core 1: Camera capture → HSV blob tracking → centroid UDP at 15-30Hz. This reduces tracking latency from ~150ms (MacBook round-trip) to <30ms.",
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:27:00Z",
+  "applies_to": ["splash-water-gun-drone", "esp32", "computer-vision", "freertos"],
+  "source": "Nightly Research 2026-05-22, Finding 3",
+  "action": "Phase 1: Port avatar_bridge.ino from Arduino to ESP-IDF with FreeRTOS. Phase 2: Add ESP32-CAM + HSV blob tracker on Core 1."
+}

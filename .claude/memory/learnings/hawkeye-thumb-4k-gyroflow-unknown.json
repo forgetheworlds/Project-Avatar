@@ -1,0 +1,13 @@
+{
+  "learning_id": "hawkeye-thumb-4k-gyroflow-unknown",
+  "type": "hardware_risk",
+  "title": "Hawkeye Thumb 4K: Simultaneous Stream+Record UNVERIFIED",
+  "context": "Hawkeye Thumb 4K ($60, 16.5g) is Avatar's selected camera. Must serve dual role: CV feed + 4K recording with gyro data.",
+  "what_was_found": "Hawkeye Thumb 4K is NOT explicitly listed in Gyroflow's camera_identifier.rs source code. Generic gyro data path exists but untested. Simultaneous UVC streaming while recording 4K to SD card is UNVERIFIED — the single biggest hardware uncertainty.",
+  "contingency": "If dual-role fails: add ESP32-CAM ($10, 2g) for CV + dedicated BMI270 IMU ($3-5, <1g) for gyro data. Hawkeye handles 4K recording only.",
+  "confidence": "medium",
+  "extracted_at": "2026-05-22T23:27:00Z",
+  "applies_to": ["splash-water-gun-drone", "camera", "gyroflow", "computer-vision"],
+  "source": "Nightly Research 2026-05-22, Finding 1",
+  "action": "Before purchase: find review showing UVC mode. Test gyro data quality on ground. Budget $10 for ESP32-CAM backup."
+}

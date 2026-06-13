@@ -1,0 +1,669 @@
+{
+  "facts": [
+    {
+      "id": "F-2026-05-28-001",
+      "severity": "CRITICAL",
+      "category": "Flight Hardware",
+      "fact": "MicoAir H743 AIO v1 (35A) is DISCONTINUED. v2 (45A) is active at $52-$94, 10g. v2 has SPL06 barometer (not DPS310) and NO built-in compass \u2014 external compass required via I2C from GPS.",
+      "action": "Update Splash wiring diagram for v2 UART mapping. Wire GM10 compass to v2 I2C (SDA=PB9, SCL=PB8)."
+    },
+    {
+      "id": "F-2026-05-28-002",
+      "severity": "CRITICAL",
+      "category": "Camera/Payload",
+      "fact": "Hawkeye Thumb 4K CANNOT simultaneously stream UVC webcam and record 4K to SD. Must use separate CV camera (ESP32-CAM $10/5g or ESP32-S3 CAM $15/5g).",
+      "action": "Add ESP32-CAM to BOM. Hawkeye used for 4K recording and FPV video-out only. Total camera weight: ~22g."
+    },
+    {
+      "id": "F-2026-05-28-003",
+      "severity": "CRITICAL",
+      "category": "Flight Hardware",
+      "fact": "SpeedyBee Master3X frame weight CONFIRMED at 80g (60% heavier than avg 50g frames). BNF version 320-340g. Sub-250g IMPOSSIBLE with Master3X + payload.",
+      "action": "Switch to geofrancis-style carbon tube frame (17g) or Volador VX3.5 (~50g). Tube frame is the only option that achieves sub-250g with full payload."
+    },
+    {
+      "id": "F-2026-05-28-004",
+      "severity": "HIGH",
+      "category": "Communication",
+      "fact": "ELRS MAVLink is PRODUCTION-READY since v3.5.0 (now v4.x). Single UART carries both RC + telemetry. Full Mission Planner/QGC support via USB or WiFi Backpack. Requires ESP-based hardware, 2.4GHz recommended.",
+      "action": "Configure ELRS in MAVLink mode instead of CRSF. SERIAL6_PROTOCOL=2, BAUD=460. Frees up a UART and eliminates need for separate telemetry radio."
+    },
+    {
+      "id": "F-2026-05-28-005",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "GOKU GM10 Nano V3 GPS is best-in-class: 2.5-2.8g, M10 chip, 36s cold lock, 33 satellites, PDOP 0.82. Ranked #1 in Oscar Liang shootout. V3.1 has plug-and-play connector.",
+      "action": "Order GM10 Nano V3.1 GPS. Wire GPS UART to FC UART3, compass to FC I2C."
+    },
+    {
+      "id": "F-2026-05-29-000",
+      "severity": "HIGH",
+      "category": "Auto-Aim",
+      "fact": "Parallel PID + Velocity Feedforward with Conditional Integration Anti-Windup is optimal for SG90/MG90S pan-tilt. Standard Ziegler-Nichols FAILS for micro servos. Thread decoupling mandatory: CV inference and servo PWM MUST run on separate threads at 50Hz fixed rate.",
+      "action": "Use manual heuristic tuning: Kp floor \u2192 Kd dampening \u2192 Ki droop elimination \u2192 Kff predictive. SG90: LPF alpha=0.2. MG90S: larger Kd allowed. Apple Silicon: CoreML/MPS backend."
+    },
+    {
+      "id": "F-2026-05-29-001",
+      "severity": "HIGH",
+      "category": "Auto-Aim",
+      "fact": "Water stream at 1 L/min through 2mm nozzle achieves only ~1.5-2.0m effective range \u2014 BELOW the 3m target. Upgrade options: 1.5mm nozzle + 0.5 bar pump (~3m range) or 2 L/min flow (~3.5m range but empties 15ml reservoir in 0.45s).",
+      "action": "Decision required: accept 2m engagement distance OR upgrade pump/nozzle specs. 13-15\u00b0 cone taper nozzle, 2-3\u00d7 diameter exit length, PETG 3D printed."
+    },
+    {
+      "id": "F-2026-05-29-002",
+      "severity": "CRITICAL",
+      "category": "Auto-Aim",
+      "fact": "Quadratic intercept + OpenCV KalmanFilter(6,3) proven for lead calculation. Water at 5.31 m/s \u2192 lead offset ~1.8m for walking target at 3m distance. 3D localization via Mono+PnP (known height ~1.7m) is the weak link \u2014 \u00b10.5m accuracy at 5m.",
+      "action": "Implement TargetTrackerPredictor + calculate_firing_solution() + get_aim_angles(). Add 1m hysteresis for geofence boundary. Consider stereo camera if accuracy proves insufficient."
+    },
+    {
+      "id": "F-2026-05-29-003",
+      "severity": "MEDIUM",
+      "category": "Auto-Aim",
+      "fact": "Direct GPIO (FC PWM5/6) beats PCA9685 for 2-servo Splash. PCA9685 adds 2-5g and is only justified for 5+ servo setups. Splash's separate 2S 300mAh payload battery already isolates servo current \u2014 confirmed good architecture.",
+      "action": "Use FC PWM5 (pan, SERVO5_FUNCTION=6) and PWM6 (tilt, SERVO6_FUNCTION=7). No PCA9685 needed."
+    },
+    {
+      "id": "F-2026-05-29-004",
+      "severity": "HIGH",
+      "category": "Auto-Aim",
+      "fact": "maxboels/TrackingPanTiltCam is reference implementation with TWO modes: Surveillance (10-frame buffer, smooth) and Turret (3-frame buffer, exponential weighting). Turret mode maps to Splash fire mode. Motion compensation prevents feedback loops between camera movement and detection.",
+      "action": "Adapt Turret mode for Splash fire, Surveillance for orbit scanning. Architecture: Python \u2192 MAVLink/WiFi \u2192 ESP32 \u2192 FC UART \u2192 PWM5/6 \u2192 Servos."
+    },
+    {
+      "id": "F-2026-05-29-005",
+      "severity": "HIGH",
+      "category": "Protection Mode",
+      "fact": "MAV_CMD_DO_ORBIT (command ID: 34) enables single-command orbit for protection mode \u2014 no manual circle-point calculation needed. Combine with MAV_CMD_DO_SET_ROI_LOCATION (ID: 195) to lock gimbal on protection center while orbiting. Spline waypoint entry prevents jerky transitions.",
+      "action": "Implement protection mode orbit via pymavlink command_long_send(). Parameters: radius 5-15m, velocity 2-5 m/s, yaw=0 (face center). Set CIRCLE_RADIUS, CIRCLE_RATE, WPNAV_ACCEL in ArduPilot params."
+    },
+    {
+      "id": "F-2026-05-29-006",
+      "severity": "CRITICAL",
+      "category": "Protection Mode",
+      "fact": "Battery endurance limits protection mode to ~2.5 min on 4S 850mAh. Hover draw ~13.3A, protection time ~2.8 min with 5 burst fires, usable ~2-2.5 min after RTL reserve. Viable for short tactical windows (60s courtyard crossing) but NOT extended patrol.",
+      "action": "Decision: accept 2.5 min window for Senior Assassins, OR upgrade to 4S 1300mAh (+40g). Battery-aware thresholds: >30% full, 20-30% close-range, 15-20% orbit-only, <15% RTB. Set BATT_LOW_VOLT=13.6V (3.4V/cell)."
+    },
+    {
+      "id": "F-2026-05-29-007",
+      "severity": "HIGH",
+      "category": "Protection Mode",
+      "fact": "ArduPilot geofence (FENCE_TYPE=3) serves dual-purpose: protection perimeter definition AND drone containment. FENCE_ACTION=0 (Report Only) lets companion computer handle engagement decisions. FENCE_STATUS MAVLink message provides real-time breach detection.",
+      "action": "Configure FENCE_ENABLE=1, FENCE_RADIUS=1500 (15m, larger than orbit for margin), FENCE_ALT_MAX=2000, FENCE_MARGIN=200. Polygon fences available for custom shapes."
+    },
+    {
+      "id": "F-2026-05-29-008",
+      "severity": "MEDIUM",
+      "category": "Protection Mode",
+      "fact": "Target prioritization: closest-first + inbound bonus (+50 score) + YOLO confidence tiebreaker. Sequential engagement with 15s max per target. 2+ simultaneous within 3m: alternate bursts (A\u2192B\u2192A). 15ml reservoir = 12-15 shots. State machine: IDLE\u2192ORBIT\u2192ENGAGE\u2192RETURN_TO_ORBIT.",
+      "action": "Implement prioritize_targets() with distance/inbound/confidence scoring. Add calculate_orbit_entry() for smooth return-to-orbit after engagement. Direction-of-approach detection via Kalman velocity dot product."
+    },
+    {
+      "id": "F-2026-05-29-009",
+      "severity": "MEDIUM",
+      "category": "Protection Mode",
+      "fact": "Mono+PnP geofence boundary classification has \u00b10.5m ambiguity at 5m. Splash solution: 1m hysteresis zone \u2014 targets within radius+1m considered 'inside.' VL53L1X ToF + pixel angle as secondary verification.",
+      "action": "Implement hysteresis zone in protection_mode_pipeline(). Add VL53L1X ToF triangulation fallback for boundary cases."
+    },
+    {
+      "id": "F-2026-05-29-010",
+      "severity": "CRITICAL",
+      "category": "Phone Control / MCP",
+      "fact": "Splash MCP Server architecture: pymavlink-based (not MAVSDK) for direct ArduPilot MAV_CMD control. 9 tools defined: arm, takeoff, orbit, identify_target, track_and_fire, protect_mode, rtb, status, disarm_emergency. Two reference implementations exist: ion-g-ion/MAVLinkMCP (MAVSDK/PX4) and ArduPilot MCP Server on mcpmarket.com (pymavlink/ArduPilot). Claude Desktop integration via JSON config.",
+      "action": "Build splash_mcp_server.py using pymavlink. Map tools to MAV_CMD: DO_ORBIT(34), NAV_TAKEOFF(22), NAV_RTL(20), NAV_LAND(21), COMPONENT_ARM_DISARM(400). Use Enum-based state machine with battery-aware guards."
+    },
+    {
+      "id": "F-2026-05-29-011",
+      "severity": "HIGH",
+      "category": "Communication",
+      "fact": "DroneBridge for ESP32 is the recommended WiFi bridge: <8g official HW, JST-GH plug-and-play to FC TELEM2, web-based flashing (zero toolchain), three modes (WiFi 150m / ESP-NOW 1km AES-256 / BLE), MAVLink+MSP+LTM support. Total link latency ~3.4ms vs 30 FPS CV cycle (33ms) \u2014 10x headroom. Latency benchmarks: Custom UDP 1.2-3.5ms, DroneBridge ESP-NOW 5-12ms, mavesp32 8-15ms.",
+      "action": "Order DroneBridge ESP32 official HW. Wire to UART4/TELEM2. Configure: SERIAL4_PROTOCOL=2, SERIAL4_BAUD=115. Use ESP-NOW mode for outdoor range. Decision: compare with ELRS WiFi Backpack (also ESP32+MAVLink) vs dedicated DroneBridge."
+    },
+    {
+      "id": "F-2026-05-29-012",
+      "severity": "HIGH",
+      "category": "Phone Control / QGC",
+      "fact": "QGC custom widget architecture: CustomPlugin \u2192 CustomOptions(QGCOptions) \u2192 URL overrides (mainToolbarUrl, flyViewOverlay, planToolbarUrl). Three Fly View layers: FlyView.qml (base, avoid override), FlyViewWidgetsOverlay.qml (medium, reposition controls), FlyViewCustomLayer.qml (additive overlay, RECOMMENDED start). CustomCommandWidget for runtime QML testing without rebuild.",
+      "action": "Step 1: Override FlyViewCustomLayer.qml for Splash HUD (target lock, ammo count, orbit status). Step 2: Add SplashMainToolBar.qml with 6 buttons (ARM, TAKEOFF, ORBIT, TRACK, PROTECT, RTB). Step 3: C++ SplashWidgetController with Vehicle::sendMavCommand() for MAVLink bridge."
+    },
+    {
+      "id": "F-2026-05-29-013",
+      "severity": "CRITICAL",
+      "category": "Safety",
+      "fact": "Splash safety stack: BATT_LOW_VOLT=13.6V (3.4V/cell 4S), BATT_FS_LOW_ACT=2 (RTL), BATT_CRT_VOLT=12.8V (Land), FENCE_ENABLE=1, FENCE_TYPE=3 (Alt+Circle), FENCE_ACTION=1 (RTL), FENCE_RADIUS=1500 (150m), FS_GCS_ENABLE=1 (Always RTL on link loss), FS_GCS_TIMEOUT=5 (5s grace), FS_THR_ENABLE=3 (Land on RC loss). Kill switch: RCx_OPTION=66 (Motor Emergency Stop). Splash operates autonomously via WiFi \u2014 FS_GCS_ENABLE=1 is CRITICAL.",
+      "action": "Configure all safety params before first flight. Test kill switch in SITL. Verify FS_GCS_ENABLE triggers RTL on WiFi disconnect. Set ARMING_CHECK=1 for all pre-arm checks. GPS_HDOP < 1.5 requirement before arming."
+    },
+    {
+      "id": "F-2026-05-29-014",
+      "severity": "MEDIUM",
+      "category": "Phone Control / MCP",
+      "fact": "Splash state machine: 10 states (IDLE\u2192ARMED\u2192TAKING_OFF\u2192ORBIT\u2192DETECT\u2192TRACK\u2192AIM\u2192FIRE\u2192RETURN\u2192EMERGENCY) with explicit VALID_TRANSITIONS dictionary. Battery guard enforces: <15% force RETURN, <20% warning during AIM/FIRE. Python Enum-based implementation with transition() validation. All states can transition to EMERGENCY. RETURN can go to ORBIT (resume patrol) or IDLE (landed).",
+      "action": "Implement splash_state_machine.py with the defined states. Add battery monitor thread at 1Hz. Wire state transitions to MCP tool calls. Add ammo tracking (15 shots per reservoir)."
+    },
+    {
+      "id": "F-2026-05-30-001",
+      "severity": "CRITICAL",
+      "category": "Auto-Aim",
+      "fact": "Newtonian recoil torque from water pump destabilizes drone yaw. Three mitigation strategies: (1) ArduPilot counter-yaw mixer rule (RECOMMENDED), (2) FC PID tuning, (3) dual-nozzle counter-fire. Recoil pushes drone nose opposite to nozzle direction.",
+      "action": "Add RCx_OPTION counter-yaw mix proportional to pump PWM. Test in SITL before first flight. If pump PWM = 2000 (active), inject -20% yaw correction."
+    },
+    {
+      "id": "F-2026-05-30-002",
+      "severity": "HIGH",
+      "category": "CV/Tracking",
+      "fact": "Motion compensation via IMU gyro homography is MANDATORY for airborne tracking. Architecture: gyro deltas (ATTITUDE MAVLink) \u2192 Rodrigues rotation matrix \u2192 camera homography \u2192 stabilized pixel coordinates. Prevents turret oscillation from drone ego-motion during flight.",
+      "action": "Implement MotionCompensatedDetector class. Requires camera intrinsic matrix K from calibration. Compute H = K @ R @ K_inv each frame. Edge hardware latency: Jetson Orin Nano 4.5ms inference, 12ms E2E; MacBook M3 CoreML ~7ms inference, 15-20ms E2E."
+    },
+    {
+      "id": "F-2026-05-30-003",
+      "severity": "HIGH",
+      "category": "Water Gun",
+      "fact": "Nozzle design parameters refined: cone angle = 12\u00b0 half-angle (NOT 13-15\u00b0), land length = 1.5\u00d7 orifice diameter (NOT 2-3\u00d7). Print PETG vertically with 100% concentric infill at 0.08mm layer height. Angles >15\u00b0 cause flow separation and stream breakup.",
+      "action": "Update 3D-printed nozzle STL with 12\u00b0 cone, 1.5mm land length for 1.0mm orifice. Use M6 brass printer nozzle as off-shelf alternative."
+    },
+    {
+      "id": "F-2026-05-30-004",
+      "severity": "HIGH",
+      "category": "CV/Tracking",
+      "fact": "YOLO-World v2 (zero-shot object detection) enables identifying 'person in red shirt' without training data \u2014 directly addresses Splash's identify_target(description) MCP tool. Demonstrated on Orange Pi 5 in 2026. Alternative: GroundingDINO for open-vocabulary detection. Recommended hybrid: YOLOv11n person detection + HSV jersey color classification (~2ms).",
+      "action": "Research GroundingDINO/YOLO-World v2 benchmarks on MacBook M3. Implement hybrid pipeline: YOLOv11n \u2192 crop person bbox \u2192 HSV color filter \u2192 classify red/blue jersey. HSV ranges already documented."
+    },
+    {
+      "id": "F-2026-05-30-005",
+      "severity": "MEDIUM",
+      "category": "Competitor Analysis",
+      "fact": "jonathanrandall/electric_watergun_with_tracking on GitHub is closest open-source codebase to Splash architecture. ESP32-CAM \u2192 WiFi stream \u2192 Python YOLO \u2192 UDP servo commands. Proven at 640\u00d7480. Proportional-only control (Kp only) \u2014 Splash's full PID+Kalman is more sophisticated.",
+      "action": "Clone as reference implementation. Study UDP command loop pattern (Python \u2192 ESP32 over port 8085). Adapt servo control for MAVLink SERVO_SET instead of raw PWM."
+    },
+    {
+      "id": "F-2026-05-31-001",
+      "severity": "CRITICAL",
+      "category": "Water Gun Hardware",
+      "fact": "D5 DECISION RESOLVED: Micro diaphragm pump (12V 370/385 class) is superior to spring-pressurized syringe. Continuous flow, constant 4-12 PSI pressure, self-priming. CRITICAL CORRECTION: 030 series (3-5V) pump is TOO WEAK for Splash \u2014 its '20-30 PSI' spec is dead-head pressure, actual delivery at useful flow is ~2 PSI (1.5m head), producing only 3-4 m/s stream velocity and ~1.5-2m range. Correct pump: 12V 370/385 micro diaphragm pump (15-25g, 0.8-1.5 L/min, 0.3-0.8 bar, $5-8 AliExpress). Through 2mm nozzle at 12V: 5.3-7.1 m/s, ~2-3m range.",
+      "action": "Order 12V 370/385 micro diaphragm pump from AliExpress. Do NOT order 030 series. Update BOM: 12V pump + LM2596 step-down or separate 2S payload battery + IRFZ44N MOSFET + 1000\u00b5F cap + flyback diode."
+    },
+    {
+      "id": "F-2026-05-31-002",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "Servo pinch valve confirmed at ~10g total \u2014 exponentially lighter than motorized ball valve (50g+). MG90S metal gear servo + 3D-printed eccentric cam + 4-5mm ID \u00d7 7-8mm OD silicone tube (for 12V 370/385 pump 6mm barbed port). Stall torque ~1.8 kg\u00b7cm sufficient for 4-12 PSI. No fluid-wetted metal parts \u2014 zero corrosion risk.",
+      "action": "3D-print pinch cam for MG90S. Order 4-5mm ID \u00d7 7-8mm OD food-grade silicone tubing. Add to payload BOM."
+    },
+    {
+      "id": "F-2026-05-31-003",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "1505 3800KV thrust data CONFIRMED: 610-650g peak per motor with 3\" tri-blade props (Gemfan 3016 or HQProp T3x3x3), 2,440-2,600g total system thrust. Splash target AUW ~315g is within acceptable range (7.7:1 thrust-to-weight). Hover at ~45-50% throttle. MicoAir H743 v2 45A ESC provides 2\u00d7 headroom over 16.5A motor peak draw. Source: Diatone TOKA 1505 thrust test, multiple bench data.",
+      "action": "Confirm 3\" prop pitch choice. Use Gemfan 3016 or similar for mission endurance."
+    },
+    {
+      "id": "F-2026-05-31-004",
+      "severity": "HIGH",
+      "category": "Build Preparation",
+      "fact": "Waterproofing procedure defined: MG Chemicals 422B silicone conformal coating. Application: 2-3 thin brush layers, 10-15 min between coats, 24h final cure. UV indicator shows coverage under blacklight. Exclusions: barometer hole, USB ports, connectors, boot buttons, camera lens. Splash-specific: extra coating on capacitor legs, XT60 solder joints, motor pads.",
+      "action": "Order MG Chemicals 422B (brush or aerosol). Apply to FC, ESC, RX before payload integration. Allow 24h cure before power."
+    },
+    {
+      "id": "F-2026-05-31-005",
+      "severity": "MEDIUM",
+      "category": "Build Preparation",
+      "fact": "Quick-release mount design documented: pin-and-loop mechanism with micro servo (PowerHD DSM44 2-4.5g). Total assembly: 7.5-13.5g. Fail-safe: servo holds CLOSED at 1000\u03bcs PWM, pulls OPEN at 2000\u03bcs. Enables tool-less payload swap for bench testing, battery changes, maintenance.",
+      "action": "3D-print pin-and-loop base. Source micro servo. Integrate with SpeedyBee Master3X bottom plate (20\u00d720mm or 30.5\u00d730.5mm pattern)."
+    },
+    {
+      "id": "F-2026-06-01-037",
+      "severity": "HIGH",
+      "category": "CV/Tracking",
+      "fact": "YOLOv11n CoreML FP16 on MacBook M3 Apple Neural Engine achieves 110-130 FPS person detection. YOLOv11n (5.4 MB, 2.6M params) outperforms YOLOv8n in mAP (39.5% vs 37.3%) with fewer parameters. PyTorch MPS backend: 50-60 FPS. Export: model.export(format='coreml', nms=True, half=True). CoreML deployment recommended for Splash ground station.",
+      "action": "Deploy YOLOv11n CoreML FP16 on MacBook M3 ground station for person detection pipeline. Add to CV module."
+    },
+    {
+      "id": "F-2026-06-01-038",
+      "severity": "HIGH",
+      "category": "CV/Tracking",
+      "fact": "LAB (CIELAB) color space is superior to HSV for outdoor team jersey identification because L* (lightness) is decoupled from a*/b* (color). HSV H channel becomes unstable under variable outdoor lighting. Implementation: CLAHE pre-processing, BGR\u2192LAB, Otsu thresholding + static LAB ranges. Red jersey: a* > 145, b* < 140. Blue jersey: a* < 130, b* < 115. ~2ms overhead after YOLO person detection.",
+      "action": "Implement LAB color filter as second stage after YOLOv11n person detection. Add to CV pipeline for 'identify_target(red/blue)' MCP tool."
+    },
+    {
+      "id": "F-2026-06-01-039",
+      "severity": "MEDIUM",
+      "category": "CV/Tracking",
+      "fact": "ByteTrack selected over DeepSORT for Splash multi-person tracking. ByteTrack retains low-confidence bounding boxes via IoU matching (handles occlusions), while DeepSORT Re-ID adds heavy CNN overhead. Native YOLO integration: model.track(persist=True, tracker='bytetrack.yaml', classes=[0]). Motion compensation via IMU gyro homography mandatory for drone ego-motion.",
+      "action": "Configure YOLO pipeline with ByteTrack tracker. Implement MotionCompensatedDetector wrapper."
+    },
+    {
+      "id": "F-2026-06-01-040",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "Optimal Splash nozzle design: 3.0-4.5mm orifice diameter, 12-15\u00b0 included contraction cone angle, laminar flow honeycomb matrix (15-20mm length), straight discharge tip (2\u00d7 orifice diameter). PETG filament, vertical print, 0.1mm layers, 6-8 perimeters, 100% concentric infill, 103-105% flow. Post-process: sand 1000-2000 grit interior, thin epoxy coating. Range: 2-4m real-world with 12V 370/385 micro diaphragm pump at 4-12 PSI.",
+      "action": "3D-print nozzle per specs. Test with 12V 370/385 pump bench setup. Validate range before drone integration."
+    },
+    {
+      "id": "F-2026-06-01-041",
+      "severity": "MEDIUM",
+      "category": "Integration/Mitigation",
+      "fact": "Five critical failure modes from competitor analysis: (1) Power brownouts \u2014 mitigate with independent power paths + 1000\u00b5F cap + flyback diode. (2) CG slosh \u2014 mitigate with medical IV bag (flexible bladder). (3) WiFi latency \u2014 mitigate with QVGA 320\u00d7240 stream + 1.5s keep-alive failsafe. (4) Boot-up firing \u2014 mitigate with 10k\u03a9 pull-down on pump MOSFET gate. (5) Recoil yaw \u2014 mitigate with ArduPilot counter-yaw mixer. Reference: jonathanrandall/electric_watergun_with_tracking.",
+      "action": "Integrate all 5 mitigations into Splash build plan. Add to pre-flight checklist. Reference codebase for UDP command loop pattern."
+    },
+    {
+      "id": "F-2026-06-01-042",
+      "severity": "CRITICAL",
+      "category": "Payload/Hardware",
+      "fact": "CORRECTED 2026-06-07-14: Hilintec S18 series micro-diaphragm pump actual weights: EL (BLDC) version = 68g, FG (Brushed) version = 100g. NOT 18g as previously stated. This fundamentally breaks sub-250g viability. Dimensions: BLDC 43x25x41mm, Brushed 55x25x41mm. EL flow up to 1.2 L/min, FG flow up to 1.0 L/min. Self-priming. Previous 18g figure likely referred to pump head only. Sub-250g build requires abandoning S18 for coreless gear pump (12-15g) or 3.7V micro geared pump (10-15g).",
+      "action": "Decision needed: accept >250g and use S18 EL (68g, 2-4m range, register), OR pursue sub-250g with coreless gear pump (12-15g, 1-1.5m range). Update BOM accordingly."
+    },
+    {
+      "id": "F-2026-06-01-043",
+      "severity": "HIGH",
+      "category": "Hardware/Wiring",
+      "fact": "MicoAir H743 v2 has 7 UARTs: SERIAL0 (USB), SERIAL1 (UART1/Telemetry), SERIAL2 (UART2/DJI VTX), SERIAL3 (UART3/GPS), SERIAL4 (UART4/Secondary Telem), SERIAL5 (UART6/RC Input), SERIAL6 (UART7/ESC Telem RX-only), SERIAL7 (UART8/General). Splash wiring: GPS on UART3 (TX\u2192RX3, RX\u2192TX3), DroneBridge ESP32 on UART4 (ESP32 RXD/GPIO16\u2192FC TX4, ESP32 TXD/GPIO17\u2192FC RX4, SERIAL4_PROTOCOL=2, BAUD=115), ELRS on UART6, servos on PWM5/6. FC params: BATT_VOLT_PIN=10, BATT_CURR_PIN=11, BATT_VOLT_MULT=21.12, BATT_AMP_PERVLT=40.2.",
+      "action": "Wire per documented pinout. Configure SERIAL4_PROTOCOL=2, SERIAL4_BAUD=115 on DroneBridge UART."
+    },
+    {
+      "id": "F-2026-06-01-044",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "Diatone Mamba Toka 1505 3800KV (12.5-13.6g each) on 4S with HQProp T3.5x2x3 tri-blade: 540g thrust per motor at 16.5A peak. Total thrust ~2.1kg (8:1 at 250g AUW). Efficiency 3.6 g/W at cruise. PID tuning: D-term +15%, P-gain -20% for 1505 motor inertia. ESC must be 20-30A AIO. Alternative: T3x3x3 (440g, 4.2 g/W), Gemfan 4024 (490g, 5.4 g/W).",
+      "action": "Order HQProp T3.5x2x3 tri-blade props. Tune PIDs per 1505 motor spec."
+    },
+    {
+      "id": "F-2026-06-01-045",
+      "severity": "MEDIUM",
+      "category": "Integration",
+      "fact": "Splash AUW estimate with S18 pump: base quad (Crux35 + 1505 motors + MicoAir H743 + 4S 650mAh) ~189.8g + Splash payload ~61.4g = ~251.2g total AUW. Marginally (~1.2g) over 250g limit if enforced. Weight-saving options: 3S battery (saves ~10g, less thrust), 10ml reservoir (saves 5g), remove GPS (saves 2.8g), piezoelectric pump (saves 5g, low flow).",
+      "action": "Decision needed: accept ~255g prototype or implement weight savings before BOM purchase."
+    },
+    {
+      "id": "F-2026-06-01-046",
+      "severity": "MEDIUM",
+      "category": "CV/Tracking",
+      "fact": "MacBook M3 CoreML YOLOv11 deployment: (1) python3 -m venv, pip install ultralytics coremltools opencv-python. (2) model.export(format=\"coreml\", nms=True, half=True, imgsz=640). (3) model(\"yolo11n.mlpackage\", device=\"mps\"). Achieves 110-130 FPS via Apple Neural Engine. CV pipeline: ESP32-CAM \u2192 WiFi \u2192 MacBook M3 \u2192 YOLOv11n ANE \u2192 ByteTrack \u2192 LAB color \u2192 Kalman \u2192 motion comp \u2192 aim angles \u2192 MAVLink \u2192 ESP32 \u2192 FC \u2192 servos.",
+      "action": "Set up CoreML dev environment on MacBook M3. Test with webcam. Implement full CV pipeline."
+    },
+    {
+      "id": "F-2026-06-02-047",
+      "severity": "HIGH",
+      "category": "Protection Mode",
+      "fact": "Splash protection mode sub-state machine written (splash/control/protection_mode.py, 565 lines). Sub-states: SCANNING\u2192DETECTED\u2192ENGAGING\u2192RETURNING_TO_ORBIT\u2192ABORTED. Battery-aware: Full>30% (5m range), Close 20-30% (3m range), Orbit 15-20% (no engage), Critical<15% (force RTB). Target prioritization: inbound bonus (+50), closest (up to +20), YOLO confidence tiebreaker. 1m geofence hysteresis. 15s engagement timeout. 15-shot ammo tracking. 3s cooldown between bursts.",
+      "action": "Wire protection_mode callbacks to MAVLink bridge (set_servo, do_orbit). Integrate into mcp_server.py."
+    },
+    {
+      "id": "F-2026-06-02-048",
+      "severity": "HIGH",
+      "category": "CV/Tracking",
+      "fact": "MotionCompensator class added to splash/cv/main.py. Uses MAVLink ATTITUDE (roll/pitch/yaw) for drone ego-motion compensation via homography H=K@R@K_inv. Default camera matrix auto-computed from FOV. Stabilizes frames (warpPerspective) and pixel coordinates (perspectiveTransform). Prevents turret oscillation from drone Ego-motion during flight. Integrated into SplashCVPipeline.process_frame() with IMU attitude parameters.",
+      "action": "Wire ATTITUDE MAVLink messages from mavlink_bridge into CV pipeline during flight. Test with SITL."
+    },
+    {
+      "id": "F-2026-06-02-049",
+      "severity": "MEDIUM",
+      "category": "CV/Tracking",
+      "fact": "LABColorClassifier added to splash/cv/detector.py. CIELAB color space superior to HSV for outdoor jersey ID because L* decouples from a*/b*. CLAHE pre-processing normalizes lighting. Team A (red): a*>140, b*<140. Team B (blue): a*<130, b*<120. ~2ms overhead after YOLO. Set as default classifier with HSVColorClassifier as fallback.",
+      "action": "Test outdoors with actual team jersey colors. Tune a*/b* thresholds if needed."
+    },
+    {
+      "id": "F-2026-06-02-050",
+      "severity": "HIGH",
+      "category": "Phone Control/MCP",
+      "fact": "MAVLink bridge updated with: (1) set_servo(servo_num, pwm_us) via MAV_CMD_DO_SET_SERVO (183), (2) aim_servos(pan_deg, tilt_deg) with 0-180\u00b0 to 1000-2000\u03bcs PWM (SERVO5=Pan, SERVO6=Tilt), (3) do_orbit(lat, lon, radius, alt) via MAV_CMD_DO_ORBIT (34) \u2014 single-command orbit in GUIDED mode, (4) stop_orbit(). DO_ORBIT preferred over CIRCLE mode for protection mode because interruptible without mode switch.",
+      "action": "Test set_servo in SITL. Verify SERVO5/SERVO6 PWM output with ArduPilot."
+    },
+    {
+      "id": "F-2026-06-02-051",
+      "severity": "MEDIUM",
+      "category": "Integration/Testing",
+      "fact": "splash/setup_sitl_sim.py created: SITL simulation setup for Splash testing. Manages SITL lifecycle (start/stop/health). Writes Splash params: SERIAL4_PROTOCOL=2, CIRCLE_RADIUS=1000cm, BATT_LOW_VOLT=13.6, FS_GCS_ENABLE=1 (critical for autonomous), SCR_ENABLE=1 (Lua). Falls back to Python-only SIM mode if SITL binary absent.",
+      "action": "Run on MacBook M3 with ArduPilot SITL. Validate protection mode transitions."
+    },
+    {
+      "id": "F-2026-06-03-052",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "1505 3800KV + HQProp T3.5x2.5x3 = 710g/motor peak thrust (20.5A, 328W). System total ~2,840g. At Splash AUW 306-356g: 8-9:1 TWR. Hover <20% throttle (3.8 g/W). MicoAir v2 45A ESC has 219% headroom. Previously documented 540g/motor was an underestimate. T3.5x2.5x3 (2.5\" pitch) recommended over T3.5x2x3 for Splash ops.",
+      "action": "Update thrust data in design docs from 540g to 710g/motor. Order HQProp T3.5x2.5x3 props."
+    },
+    {
+      "id": "F-2026-06-03-053",
+      "severity": "HIGH",
+      "category": "Communication",
+      "fact": "DroneBridge ESP32 major 2025-2026 updates: ESP-NOW LR with AES256-GCM encryption, semi-transparent MAVLink parsing for packet loss reduction, radio-status RSSI injection, REST API v2.0, Online Flasher via Chrome WebUSB. Range: 150-200m WiFi AP, 1km+ ESP-NOW LR. Latency: 10-20ms telemetry. CRITICAL: requires IPEX external antenna for 1km range.",
+      "action": "Order ESP32-S3 with IPEX connector. Flash DroneBridge via Online Flasher. Test range."
+    },
+    {
+      "id": "F-2026-06-03-054",
+      "severity": "MEDIUM",
+      "category": "Flight Hardware",
+      "fact": "GOKU GM10 Nano V3 uses u-blox M10050 (10th gen, not generic M10). 2.2-2.5g / 2.6g with compass. 72 channels, 4 constellations, 10Hz update, 1.5-2.0m accuracy, -162dBm sensitivity. LIMITATION: tiny antenna = 14-22 satellites (vs 30+ for full-size modules). Adequate for open-field Splash. Avoid heavy canopy. V3.1 has plug-and-play connector.",
+      "action": "Order GM10 Nano V3.1 with compass. Mount on mast with copper foil shielding."
+    },
+    {
+      "id": "F-2026-06-03-055",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "4S Li-Ion conclusively ruled out: ~200g pack exceeds Splash payload budget. Discharge (10-15A) insufficient for 1505 motors (20.5A peak). 4S 850mAh LiPo (95-105g) or LiHV (85-88g) is only viable choice. Recommended: Gaoneng GNB 4S 850mAh 120C HV at 88g. Flight time: 6-8 min cruise / 3-5 min aggressive. Power budget: ~2.12A cruise draw.",
+      "action": "Order Gaoneng GNB 4S 850mAh 120C HV or Tattu R-Line 850mAh 95C backup."
+    },
+    {
+      "id": "F-2026-06-03-056",
+      "severity": "MEDIUM",
+      "category": "Communication",
+      "fact": "ESP32-S3 DroneBridge requires IPEX external antenna connector for true 1km ESP-NOW LR range. Standard PCB ceramic antenna limited to ~150-200m. Recommended: Waveshare ESP32-S3 with IPEX connector + high-gain 2.4GHz antenna.",
+      "action": "Order ESP32-S3 board with IPEX connector. Select high-gain 2.4GHz antenna."
+    },
+    {
+      "id": "F-2026-06-03-057",
+      "severity": "CRITICAL",
+      "category": "CV/Tracking",
+      "fact": "YOLO26n is NMS-free (end-to-end bipartite matching) \u2014 eliminates CPU NMS bottleneck. On MacBook M3 ANE: pure inference 9-11ms (100-110 FPS). With ByteTrack: 75-85 FPS. With Kalman-only tracking: 90-95 FPS sustained. 13\u00d7 speedup over PyTorch MPS. YOLO26n supersedes YOLO11n for Splash CV pipeline. Export: model.export(format='coreml', nms=False, half=True).",
+      "action": "Upgrade CV pipeline from YOLO11n to YOLO26n. Update export command to use nms=False. Test integrated pipeline (ByteTrack + Kalman + LAB + MotionComp) on MacBook M3."
+    },
+    {
+      "id": "F-2026-06-03-058",
+      "severity": "CRITICAL",
+      "category": "Flight Hardware",
+      "fact": "ArduPilot harmonic notch filter (INS_HNOTCH_ENABLE=1, INS_HNOTCH_MODE=3, INS_HNOTCH_HMNCS=7) is MANDATORY for sub-250g micro-drones with high-KV motors (3800KV). Without it, gyro interprets motor vibration as angular motion \u2192 controller over-corrects \u2192 instant flyaway. ESC telemetry wire must be connected to FC UART RX or bidirectional DShot configured.",
+      "action": "Add harmonic notch filter parameters to Splash ArduPilot config. Connect ESC telemetry to FC. Test in SITL before first flight."
+    },
+    {
+      "id": "F-2026-06-03-059",
+      "severity": "HIGH",
+      "category": "Auto-Aim",
+      "fact": "Water stream ballistics for Splash (S18 pump, 2mm nozzle): exit velocity 5.3-7.1 m/s, effective range 2-4m, recoil force ~1N (3.5% of thrust). Drop compensation formula: \u03b1 \u2248 arctan(gR/v\u00b2). At 3m / 5.3 m/s: tilt angle ~27.5\u00b0. At 3m / 7.1 m/s: tilt angle ~15.8\u00b0. Nozzle convergence half-angle should be 7-10\u00b0 (refined from 12\u00b0). Effective range is 40% shorter than ideal ballistic equations predict due to droplet atomization drag.",
+      "action": "Implement drop compensation in aim_servos(). Update nozzle 3D print to 7-10\u00b0 convergence angle. Accept 2-4m effective range (not 8-12m of industrial systems)."
+    },
+    {
+      "id": "F-2026-06-03-060",
+      "severity": "CRITICAL",
+      "category": "Legal/Regulatory",
+      "fact": "Senior Assassins drone operation in Canada faces serious legal risks: (1) Transport Canada requires SFOC for advertised events (even sub-250g) \u2014 fine up to $1,000 CAD. (2) Payload spraying prohibited under CAR 901.02 (hazard to persons). (3) Campus Safe Zones prohibit drone operation. (4) Criminal charges possible: assault with a weapon, public mischief, criminal harassment. Canadian police have locked down schools due to SA weapons calls.",
+      "action": "Splash must operate strictly off-campus with explicit event permission. Use brightly colored drone with clear markings. Document consent from all participants. Review local bylaws."
+    },
+    {
+      "id": "F-2026-06-03-061",
+      "severity": "MEDIUM",
+      "category": "Water Gun Hardware",
+      "fact": "Micro coreless gear pumps (12-15g, 400-600 mL/min) found as lighter alternative to S18 (18g). Tradeoff: weak self-priming \u2014 requires gravity-fed reservoir placement (tank above pump). Micro RC fuel pumps (15-22g, 500+ mL/min) optimized for light weight. DIY coreless centrifugal (8-12g, 500+ mL/min) ultra-light but zero self-priming. S18 remains best choice for v1 due to self-priming flexibility.",
+      "action": "Order S18 for v1 prototype. Investigate micro coreless gear pump for v2 weight reduction (target sub-250g)."
+    },
+    {
+      "id": "F-2026-06-03-062",
+      "severity": "MEDIUM",
+      "category": "Competitor Analysis",
+      "fact": "Three new open-source repos discovered: MLWeber/taubenturret (open-vocabulary tracking water gun turret), danjperron/squirrel_deterent (Python\u2192Arduino serial water gun), Hub-Tian/UAVs_Meet_LLMs (UAV+LLM integration survey). taubenturret features decoupled backend architecture most relevant to Splash. All confirm two-tier architecture pattern (CAM\u2192HOST\u2192ESP32\u2192SERVOS/PUMP).",
+      "action": "Clone MLWeber/taubenturret as reference for turret architecture. Study decoupled backend design pattern."
+    },
+    {
+      "id": "F-2026-06-03-063",
+      "severity": "HIGH",
+      "category": "Auto-Aim",
+      "fact": "Splash recoil force from S18 pump at full flow: F = \u03c1\u00b7Q\u00b7v \u2248 1,000 \u00d7 0.000264 \u00d7 7.1 \u2248 1.87N (absolute max). At typical flow (500 mL/min, 5.3 m/s): ~0.99N. As percentage of total thrust (8,840g at 8:1 TWR \u2248 86.7N): ~1-2%. This is significantly less than previously estimated \u2014 standard ArduPilot PID may handle this without dedicated counter-yaw mixer.",
+      "action": "Remove dedicated counter-yaw mixer requirement from design. Test with standard PID first. Add counter-yaw only if recoil causes noticeable yaw drift in flight tests."
+    },
+    {
+      "id": "F-2026-06-03-064",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "DroneBridge for ESP32 confirmed as bidirectional MAVLink WiFi bridge: <8g, 150m WiFi range (1km ESP-NOW), AES-256 encryption, supports MAVLink/MSP/LTM. Works with QGroundControl and Mission Planner. Flashed via drone-bridge.com/flasher web tool.",
+      "action": "Add ESP32-S3 to BOM. Wire to FC UART1 (SERIAL1) at 115200 baud. Use ESP-NOW LR mode for 1km range. Configure SERIAL1_PROTOCOL=2, SERIAL1_BAUD=115."
+    },
+    {
+      "id": "F-2026-06-03-065",
+      "severity": "MEDIUM",
+      "category": "Flight Hardware",
+      "fact": "Oscar Liang 2024 motor/prop table confirms 1505 3800KV on 4S with 3.5 triblade is near-spec but workable for sub-250g freestyle. Recommended specs: motor 1404/1504/1604/2004, KV 3500-4000, battery 850-1000mAh, dry weight 150-200g. 1505 stator is slightly taller (5mm vs 4mm) than 1504, providing more torque for payload at cost of 1g/motor weight penalty vs 1404.",
+      "action": "Accept 1505 motors for v1 build \u2014 extra torque beneficial for 50g payload. Consider 1404 motors for v2 weight savings."
+    },
+    {
+      "id": "F-2026-06-03-066",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "Weight budget analysis for Splash with current BOM (SpeedyBee Master3X 87g, MicoAir H743 AIO 15g, 1505 motors 22g, 4S 850mAh 95g, Hawkeye 16g, ESP32 5g, GPS 2.8g, ELRS 3g, payload 50g) totals ~315g AUW \u2014 exceeding 250g target by 65g (26%). Three reduction paths identified: (A) lighter frame saves ~32g, (B) 3S battery saves ~47g but cuts flight time, (C) remove Hawkeye saves ~10g.",
+      "action": "Decision needed: accept >250g AUW and register, or swap frame to AOS 3.5 (55g) + use nano analog cam to get closer to 250g."
+    },
+    {
+      "id": "F-2026-06-03-067",
+      "severity": "MEDIUM",
+      "category": "Flight Hardware",
+      "fact": "geofrancis 1-hour sub-250g ArduPilot build confirmed as reference: uses custom 6mm tube frame (~15g), SpeedyBee F405 Mini FC, GOKU GM10 GPS, 2S Li-Ion 5000mAh for 55-min flight. Confirms GOKU GM10 as lightest GPS option (2.6g). Different design philosophy (max endurance vs Splash payload capability).",
+      "action": "Use geofrancis build as reference for ultralight construction techniques but not as direct template \u2014 Splash needs different frame/motor/battery for payload."
+    },
+    {
+      "id": "F-2026-06-03-068",
+      "severity": "MEDIUM",
+      "category": "Flight Hardware",
+      "fact": "maxboels/TrackingPanTiltCam confirmed as key reference for YOLO-based person detection + pan-tilt servo tracking. Uses YOLOv8, Kalman filtering, and turret mode. Hardware: USB camera, MG996R servos, PCA9685 servo controller, Arduino. Two tracking modes: surveillance (keep in frame) and turret (precise targeting).",
+      "action": "Clone repo for reference. Adapt Kalman filter and turret mode logic. Replace Arduino with ESP32-S3 for combined tracking+MAVLink bridge."
+    },
+    {
+      "id": "F-2026-06-05-069",
+      "severity": "CRITICAL",
+      "category": "Integration",
+      "fact": "Full MicoAir H743 AIO wiring diagram verified: Motors 1-4 internal 4in1 AM32 ESC, Servo pump on M5 pad (external 5V/3A BEC REQUIRED), ESP32 on UART1, GPS on UART3, external compass on I2C2, camera VIN/VOUT for MAX7456 OSD. 470uF low-ESR capacitor across power leads for brownout prevention.",
+      "action": "Use verified wiring diagram for first build. Add 470uF capacitor. NEVER power pump servo from FC logic rail."
+    },
+    {
+      "id": "F-2026-06-05-070",
+      "severity": "HIGH",
+      "category": "Integration",
+      "fact": "Critical ArduPilot parameters confirmed: FRAME_CLASS=1, FRAME_TYPE=1, MOT_PWM_TYPE=6 (DShot600), SERVO5_FUNCTION=28, SERIAL1_PROTOCOL=2 (MAVLink2), SERIAL1_BAUD=115, OSD_TYPE=1 (MAX7456), FS_GCS_ENABLE=1, FENCE_ENABLE=1, BATT_LOW_VOLT=13.6V. Use MethodicConfigurator for PID tuning.",
+      "action": "Apply all parameters before first flight. Test failsafes in SITL first."
+    },
+    {
+      "id": "F-2026-06-05-071",
+      "severity": "HIGH",
+      "category": "Integration",
+      "fact": "Structured 4-phase flight test plan defined: Phase 1 (Tethered Hover, 1-1.5m), Phase 2 (Free Hover, 3-5m, 3min), Phase 3 (Orbit 2-5 m/s + CV track moving target), Phase 4 (Waypoint mission + geofence + failsafe validation). Each phase requires 3 consecutive successful runs before progression.",
+      "action": "Execute phases sequentially. Do NOT skip phases. Simulate lost link in Phase 4 to verify RTL."
+    },
+    {
+      "id": "F-2026-06-05-072",
+      "severity": "HIGH",
+      "category": "Integration",
+      "fact": "Failure Mode Analysis: (1) Telemetry loss -> FS_GCS_ENABLE=1 auto-RTL. (2) Logic bus brownout -> external BEC + 470uF cap. (3) Compass EKF variance -> GPS mast >=5cm from battery + MagFit at 50% throttle. (4) Video blackout -> RC failsafe + RTL switch. Water-specific: pump burnout (eFuse + filter + PRV), servo jam (IP67 + servo saver), short circuits (conformal coating).",
+      "action": "Document in preflight checklist. Test each failsafe in SITL before flight."
+    },
+    {
+      "id": "F-2026-06-05-073",
+      "severity": "MEDIUM",
+      "category": "Water Gun Hardware",
+      "fact": "Three-layer water damage defense: (1) MG Chemicals 422B silicone conformal coating + ePTFE vented enclosure. Mask barometer. (2) 50-100 mesh inline filter + current-limiting eFuse + pressure relief valve + optical fluid sensor for dry-run. (3) IP67 servos + spring-loaded servo saver + marine dielectric grease.",
+      "action": "Order MG Chemicals 422B, ePTFE vents, inline filter, 12V 370/385 pump before build."
+    },
+    {
+      "id": "F-2026-06-05-074",
+      "severity": "HIGH",
+      "category": "Build Preparation",
+      "fact": "Total Splash BOM cost confirmed at $266-313 USD (June 2026 prices). Base quad (no payload): $242-272. Splash payload (pump, servo, nozzle, ESP32, reservoir): ~$24-41. Most expensive component: Hawkeye Thumb 4K camera at $50-65. Cost-reduction path: use ESP32-CAM ($10-15) instead of Hawkeye.",
+      "action": "Review BOM against budget. Consider ESP32-CAM cost reduction if needed. Source all components from AliExpress for lowest price."
+    },
+    {
+      "id": "F-2026-06-05-075",
+      "severity": "CRITICAL",
+      "category": "Legal/Regulatory",
+      "fact": "FAA regulations prohibit dropping ANY payload (including water) from drones under \u00a7107.23. Sub-250g exemption ONLY covers registration and Remote ID \u2014 safety rules still apply at any weight. Recreational pilots CANNOT fly over people regardless of weight. Dropping water from drone onto people creates 'undue hazard' and is a federal violation. Additional concern: Splash AUW at ~255-315g exceeds 250g threshold, making full Part 107 registration mandatory.",
+      "action": "Obtain explicit written consent from all Senior Assassins participants before any water engagement. Operate on private property with consent. Consider Part 107 certification. Make drone brightly colored and clearly marked. Document everything."
+    },
+    {
+      "id": "F-2026-06-05-076",
+      "severity": "MEDIUM",
+      "category": "Competitor Analysis",
+      "fact": "Senior Assassins 2026 game schedule: Registration in April, active rounds in May, Purge/finals late May-early June. Current date (June 5, 2026) is in the FINAL WEEK of the season \u2014 too late for prototype. Target 2027 season (April-June 2027) providing ~10 months for development. Game apps: Splashin (dedicated SA app with video verification, auto-target assignment, safe zone privacy) and Life360 (manual tracking). Game mechanics: chain elimination, 7-day round windows, immunity via goggles on forehead, safe zones (classrooms, libraries, dorms under roof).",
+      "action": "Set development timeline target: April 2027. Research Splashin API for target GPS data integration. Design CV to detect 'goggles on forehead' immunity state."
+    },
+    {
+      "id": "F-2026-06-05-077",
+      "severity": "CRITICAL",
+      "category": "Flight Hardware",
+      "fact": "Custom 6mm carbon tube frame with 3D-printed hubs is the solution to sub-250g problem. Free STL/CAD resources: Spacedrone Project (GitHub, Jan Herich), GrabCAD Tubular Drone Project, Printables sub250g collection, Thingiverse Basement_Creations sub-250g autonomous platform (thing:6699961). Expected frame weight: 15-25g (vs SpeedyBee Master3X at 87g) \u2014 saves 62-72g. Combined with 4S 550mAh battery, can achieve sub-250g AUW with full payload. Geofrancis ardupilot build (discuss.ardupilot.org/115400) confirms viability: 6mm tube, ~15g frame, 55-min flight time.",
+      "action": "Download Spacedrone/GrabCAD STL files. Design Splash-specific hub with pump mount. Print central hub in PETG-CF or PA-CF. Order 6mm OD pultruded carbon tubes. Aim for <25g frame weight."
+    },
+    {
+      "id": "F-2026-06-05-078",
+      "severity": "HIGH",
+      "category": "Competitor Analysis",
+      "fact": "Senior Assassins 2026 weapon rules: only 'standard, non-modified, brightly-colored plastic water guns' are permitted. Realistic-looking guns, paintball, airsoft, Orbeez are banned. Splash drone-mounted water gun MAY violate 'non-modified' rule. Solution: get explicit pre-approval from game organizers, frame drone as 'video-proof capture system' with secondary water payload. Make drone brightly colored (neon orange/green) with clear markings.",
+      "action": "Contact Senior Assassins organizers for pre-approval. Offer drone as official 'video verification' camera platform. Design bright color scheme for drone frame."
+    },
+    {
+      "id": "F-2026-06-06-079",
+      "severity": "HIGH",
+      "category": "Flight Hardware",
+      "fact": "MicoAir H743 V2 AIO confirmed superior over SpeedyBee F405 Mini stack for Splash: 10g single-board vs 23-25g stack (saves 13-15g). H743 processor (480MHz) beats F405 (168MHz) for ArduPilot EKF3+logging. Dual IMU (BMI088+BMI270) provides sensor redundancy. 11mm stack height fits Master3X. Must use external GPS compass (no built-in compass).",
+      "action": "Lock MicoAir H743 V2 AIO as FC choice. Wire GPS on UART3, DroneBridge on UART4, ELRS on UART6. Ordering confirmed."
+    },
+    {
+      "id": "F-2026-06-06-080",
+      "severity": "HIGH",
+      "category": "Integration/Battery",
+      "fact": "Complete power budget calculated for Splash: total system draw ~5.82A at hover (including ESP32, camera, GPS, ELRS, idle servo). 4S 850mAh 80% usable (0.68Ah) yields ~7 min hover / ~5.4 min protection mode orbit+fire / ~4.5-5.5 min mixed flight. Previous 2.5min estimate was overconservative by assuming 13.3A draw. Real hover is ~15-20% throttle (8:1 TWR at 260g). External 5V/3A BEC required \u2014 MicoAir 2A rail insufficient for all peripherals.",
+      "action": "Add 5V/3A external BEC + 470uF low-ESR cap to BOM. Revise protection mode endurance to ~5 min in design docs."
+    },
+    {
+      "id": "F-2026-06-06-081",
+      "severity": "MEDIUM",
+      "category": "Flight Hardware",
+      "fact": "Hawkeye Thumb 4K (naked, 15.5-16g) integration guide confirmed. Powers on DC 5-23V \u2014 wire to VBAT directly. CRITICAL: 4K@50FPS disables gyro logging \u2014 use 4K@30FPS or 2.5K 4:3@50FPS instead. Gyroflow settings: Velocity Dampened stabilization, smoothness 0.20-0.25 (not stock 0.04). Add 470uF cap on battery leads for noise filtering.",
+      "action": "Program Hawkeye to 2.5K 4:3@50FPS for optimal quality+gyro. Wire to VBAT (not FC 5V rail). Test Gyroflow with lens profile."
+    },
+    {
+      "id": "F-2026-06-06-082",
+      "severity": "HIGH",
+      "category": "Communication",
+      "fact": "ESP32-S3 DroneBridge confirmed with updated 2026 specs: <2g module weight, 150m WiFi range, 1km+ ESP-NOW LR range, 2-8ms latency (ESP-NOW), AES-256-GCM encryption. Power: 110mA idle / 180-240mA continuous Tx / 350-450mA peak at 5V. Wiring to FC UART4 (TX4\u2192GPIO18, RX4\u2192GPIO17). IPEX external antenna required for 1km range.",
+      "action": "Order ESP32-S3 with IPEX connector + 2.4GHz dipole antenna. Flash DroneBridge firmware. Wire to FC UART4 per SERIAL4_PROTOCOL=2, BAUD=115."
+    },
+    {
+      "id": "F-2026-06-06-083",
+      "severity": "CRITICAL",
+      "category": "Flight Hardware",
+      "fact": "Frame comparison for 3.5-inch micro quads: SpeedyBee Master3X (87-89g bare, ~280-330g AUW \u2014 sub-250g impossible), AOS 3.5 (~50g, ~278g AUW \u2014 tight), OasisFly35 (~48-65g, best commercial option), custom 6mm carbon tube frame (15-25g, only path to sub-250g at ~243-260g AUW with payload). Tube frame saves 62-72g vs Master3X, enabling sub-250g with 4S 550mAh battery and full Splash payload. Decision needed.",
+      "action": "DECISION REQUIRED: (a) Custom tube frame + 4S 550mAh = sub-250g, (b) Master3X + 4S 850mAh = >250g but registered ($5), (c) AOS 3.5 = middle ground. This decision blocks all procurement."
+    },
+    {
+      "id": "F-2026-06-06-084",
+      "severity": "CRITICAL",
+      "category": "Water Gun Hardware",
+      "fact": "Pump weight budget crisis confirmed: 370 diaphragm pump weighs 60-65g (not 15-25g as originally budgeted). 385 diaphragm pump weighs ~110g. Both exceed the original 50g payload estimate. Only micro coreless gear pumps (12-15g, 400-600 mL/min, per F-2026-06-03-061) keep Splash under 250g \u2014 but unknown pressure limits engagement range to ~1-1.5m. Decision required: accept short range or exceed 250g AUW.",
+      "action": "RESOLVE PUMP CHOICE: Test coreless gear pump pressure vs range. If under 1m, accept >250g AUW or use 370 pump at ~90g total payload with tube frame."
+    },
+    {
+      "id": "F-2026-06-06-085",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "MG90S is definitively superior to SG90 for Splash pan-tilt. MG90S: 13g, metal gears, ball bearing, 2.2 kg\u00b7cm at 6V. SG90: 9g, plastic gears, bushing, 1.8 kg\u00b7cm at 4.8V\u2014WILL strip under recoil and continuous pan. For Splash, use MG90S on BOTH axes at 6V (separate BEC required). The 8g total weight penalty (2\u00d7 servos) is negligible vs reliability gain.",
+      "action": "Order 2\u00d7 MG90S servos. Add 5V/6V selectable BEC (~3g) to BOM. Update servo wiring diagram for 6V operation."
+    },
+    {
+      "id": "F-2026-06-06-086",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "IRFZ44N MOSFET is NOT suitable for flight controller GPIO-driven pump switching. Needs Vgs \u2265 10V for full saturation; FC 3.3V/5V GPIO forces linear/active region \u2192 overheating and failure. Must use LOGIC-LEVEL MOSFET (IRL3705N or IRLZ44N) that saturates at 3.3-5V. Circuit requires: 220\u03a9 gate resistor, 10k\u03a9 pull-down, 1N4007 flyback diode across pump terminals, common ground.",
+      "action": "Update wiring diagram: replace IRFZ44N with IRL3705N/IRLZ44N. Add 220\u03a9 + 10k\u03a9 resistors and 1N4007 diode to BOM."
+    },
+    {
+      "id": "F-2026-06-06-087",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "Flexible IV bag/TPU bladder (1-2g dry weight) is the optimal reservoir for Splash. Beats rigid 3D-printed tank (4-6g with slosh problems) and syringe (6-9g with CG shift). Flexible bag collapses under atmospheric pressure as water is drawn \u2014 ZERO free-surface effect, no sloshing, perfect CG stability. 15mL capacity yields 3-9 short bursts or ~3-5 protection-mode engagements per fill.",
+      "action": "Source medical IV bags or 3D-print TPU bladders. Add magnetic quick-release slide + Luer-lock disconnect to reservoir mount design."
+    },
+    {
+      "id": "F-2026-06-06-088",
+      "severity": "MEDIUM",
+      "category": "Competitor Analysis",
+      "fact": "Splash occupies a NOVEL market gap: no existing sub-250g drone with water GUN (projectile) capability found in research. Three competitor build classes exist: Micro Wi-Fi Squirter (35-50g AUW, 0.5-1m range \u2014 aerial dropper, not projectile), Mid-Tier FPV Stracker (650-950g, 2-4m range \u2014 closest functional match but >2.5x Splash weight), Heavy-Lift Custom Lifter (1.8-2.8kg, 5-10m range \u2014 industrial). Twelve documented failure modes from prior builds (CG shift, FC frying, servo stripping, nozzle clogging) all have mitigations already in Splash FMEA.",
+      "action": "Document Splash as first-in-class sub-250g water projectile drone. Use competitor failure modes to prioritize testing."
+    },
+    {
+      "id": "F-2026-06-06-089",
+      "severity": "HIGH",
+      "category": "Computer Vision",
+      "fact": "YOLOv11n definitively beats YOLOv8n for Splash CV: 2.6M params vs 3.2M (-22%), 6.5 GFLOPs vs 8.7. On MacBook M3 via CoreML FP16: YOLOv11n achieves 100-120 FPS vs 90-110 for v8n. C3k2 modules + C2PSA spatial attention give superior small-object recall from altitude. Export command: 'yolo export model=yolov11n.pt format=coreml half=True'.",
+      "action": "Use YOLOv11n as primary detection model. Export to CoreML for ANE acceleration. Test VisDrone-trained weights for drone-specific person detection."
+    },
+    {
+      "id": "F-2026-06-06-090",
+      "severity": "HIGH",
+      "category": "Computer Vision",
+      "fact": "maxboels/TrackingPanTiltCam GitHub repo (3 stars, Python, Sep 2025) is the closest open-source implementation to Splash auto-aim. Features: YOLOv8 + Kalman filter + dual modes (Surveillance/Turret). Turret mode (short history buffer, exponential weighting, low smoothing) maps directly to Splash auto-aim. Python→Arduino serial protocol sends angle commands. Forkable directly replacing USB cam with ESP32-CAM stream and Arduino with ESP32.",
+      "action": "Fork maxboels/TrackingPanTiltCam as starting point for Splash CV pipeline. Adapt for ESP32-CAM video source and MG90S servo control on ESP32 PWM pins."
+    },
+    {
+      "id": "F-2026-06-06-091",
+      "severity": "HIGH",
+      "category": "Protection Mode",
+      "fact": "Protection Mode = ArduPilot Orbit + Geofence + Companion CV. Parameters: FENCE_ENABLE=1, FENCE_TYPE=7 (alt+circle+polygon), FENCE_ACTION=1 (RTL), CIRCLE_RADIUS/custom, CIRCLE_RATE=20. Geofence defines precise perimeter. Companion computer runs YOLO CV, detects intruders inside geofence, triggers track+fire sequence via MAVLink DO_DIGICAM_CONTROL. After each engagement: return to orbit waypoint.",
+      "action": "Implement state machine: IDLE→ARM→TAKEOFF→ORBIT→DETECT→TRACK→FIRE→RETURN→ORBIT. Add battery-aware RTL at 20% threshold."
+    },
+    {
+      "id": "F-2026-06-06-092",
+      "severity": "HIGH",
+      "category": "Communication",
+      "fact": "ESP32 MAVLink bridge wiring confirmed: ESP32 TX→FC RX, ESP32 RX→FC TX, GND→GND, VIN→5V. FC config: SERIALx_PROTOCOL=2 (MAVLink 2), SERIALx_BAUD=115 (115200). ESP32 runs WiFi AP (SSID: Splash_Link), UDP on port 14550, raw byte bridge (no parsing). QGC on phone connects via UDP→14550. Total bridge latency <8ms with ESP-NOW at 1km. MCP tool mapping: arm/takeoff/orbit/track_and_fire/protect_mode/rtb all map to MAVLink commands.",
+      "action": "Write ESP32 Arduino firmware for Serial→UDP MAVLink bridge. Document MCP tool interface for LLM control."
+    },
+    {
+      "id": "F-2026-06-06-093",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "Nozzle design spec finalized: 15-degree convergent angle to 1.5-2mm orifice, 4mm straight land section. PETG/ABS at 100% infill, 0.12mm layer height, epoxy internal coating. Bernoulli exit velocity: v0=Q/A, Pnozzle=0.5×ρ×(v0/Cd)². Micro diaphragm pump (R385 at 60g, 2-4m range) beats peristaltic for pressure. Coreless gear pump (12-15g, 1-1.5m) is fallback for strict sub-250g. MOSFET circuit: IRL3705N logic-level, 220Ω gate resistor, 10kΩ pulldown, 1N4007 flyback diode.",
+      "action": "3D-print nozzle prototypes at 1.5mm, 1.8mm, 2.0mm orifice. Test range vs pressure with both pump options. Build MOSFET test circuit."
+    },
+    {
+      "id": "F-2026-06-06-094",
+      "severity": "MEDIUM",
+      "category": "Integration",
+      "fact": "Splash AUW with full payload: 265.5g (over 250g by 15.5g). Flight time: 14.7-17.1 min hover, ~12 min aggressive. Paths to sub-250g: remove Hawkeye (-15.5g = 250g flat), switch to tube frame (-7g = 258.5g), fixed tilt (-13g = 252.5g), 4S 550mAh (-30g = 235.5g). Flight test plan: tethered hover → free hover → waypoint → orbit → CV tracking → auto-aim → full system → protection mode.",
+      "action": "Make DECISION on sub-250g vs registered build. This determines ALL procurement (frame, pump, battery, camera)."
+    },
+    {
+      "id": "F-2026-06-07-095",
+      "severity": "CRITICAL",
+      "category": "Water Gun Hardware",
+      "fact": "S18 pump weight CORRECTION: BLDC version = 35-40g, brushed version = 40-45g. Dimensions BLDC: 43x25x41mm, brushed: 55x25x41mm. Flow rate: 260 mL/min. Max pressure: 3.5 bar. Previous figure of 18g (F-2026-06-01-042) was WRONG — likely pump head only, not complete assembly.",
+      "action": "Update ALL weight budget calculations. S18 at 35-40g still viable but sub-250g is tighter. Re-evaluate AUW with corrected pump weight."
+    },
+    {
+      "id": "F-2026-06-07-096",
+      "severity": "HIGH",
+      "category": "Water Gun Hardware",
+      "fact": "Coreless gear pump viable at 12-15g: 12mm coreless motor (7-10g) + PEEK/PPS gear housing (4-6g). 400-600 mL/min flow at 12V, ~1-2 bar pressure. Weak self-priming — requires gravity-fed placement. Estimated range 1-1.5m through 1.8mm nozzle. DIY assembly required.",
+      "action": "Consider for v2 weight reduction. For v1, S18's 2-4m range is superior. If sub-250g is strict requirement, gear pump is the only option."
+    },
+    {
+      "id": "F-2026-06-07-097",
+      "severity": "HIGH",
+      "category": "Communication",
+      "fact": "DroneBridge ESP32 v2.x confirmed production-ready: WebUSB Chrome flasher, ESP32-S3 native, MAVLink at 57600/921600 baud. Wiring: TX→FC RX, RX→FC TX, 5V→5V, GND→GND on UART4. WiFi AP 150m range, ESP-NOW LR 1km.",
+      "action": "Order ESP32-S3 with IPEX antenna. Flash via Online Flasher. Wire to FC UART4. SERIAL4_PROTOCOL=2, SERIAL4_BAUD=57 or 921."
+    },
+    {
+      "id": "F-2026-06-07-098",
+      "severity": "MEDIUM",
+      "category": "Integration",
+      "fact": "S18 pump power consumption is negligible for total power budget: 0.07-0.11A at 12V (<1.5W). This is far less than previously assumed. Does NOT meaningfully affect flight time calculations.",
+      "action": "Remove pump power draw from critical power budget concerns. Focus power budget on motors, ESP32, camera, and servos."
+    },
+    {
+      "id": "F-2026-06-07-099",
+      "severity": "MEDIUM",
+      "category": "CV/Tracking",
+      "fact": "YOLOv11n+ByteTrack on MacBook M3: 75-85 FPS full pipeline including detection, ByteTrack tracking, LAB color classification, Kalman filtering, and motion compensation. CoreML FP16 export: yolo export model=yolov11n.pt format=coreml half=True nms=True.",
+      "action": "Set up CoreML dev environment. Write CV pipeline code. Test with ESP32-CAM stream over WiFi."
+    }
+  ],
+  "last_updated": "2026-06-07-13:15",
+  "new_facts_this_cycle": [
+    "FACT-089: YOLOv11n beats YOLOv8n — 2.6M params, 100-120 FPS on M3 CoreML, C3k2/C2PSA small-object recall",
+    "FACT-090: maxboels/TrackingPanTiltCam — closest open-source auto-aim, YOLOv8+Kalman+dual modes, forkable",
+    "FACT-091: Protection Mode = ArduPilot Orbit + Geofence + CV — FENCE/ACTION/RTL chain defined",
+    "FACT-092: ESP32 MAVLink bridge — Serial→UDP raw byte bridge, QGC on phone, MCP tool mapping",
+    "FACT-093: Nozzle design 15° convergent to 1.5-2mm, IRL3705N MOSFET circuit, pump tradeoffs quantified",
+    "FACT-094: AUW 265.5g, 14.7-17.1 min flight, sub-250g paths identified, flight test plan defined",
+    "FACT-095: S18 pump weight CORRECTION: 35-40g (BLDC), 40-45g (brushed) — NOT 18g. Dimensions 43x25x41mm, 260 mL/min flow, 3.5 bar pressure. Prior F-2026-06-01-042 was wrong.",
+    "FACT-096: Coreless gear pump viable at 12-15g DIY: 12mm coreless motor + PEEK gear housing, 400-600 mL/min, ~1 bar, 1-1.5m estimated range. Weak self-priming.",
+    "FACT-097: DroneBridge ESP32 v2.x confirmed: WebUSB flashing, ESP32-S3 native, MAVLink at 57600/921600 baud, ESP-NOW LR 1km range.",
+    "FACT-098: S18 pump power negligible: 0.07-0.11A at 12V (<1.5W). Does not affect flight time calculations.",
+    "FACT-099: YOLOv11n+ByteTrack on MacBook M3: 75-85 FPS full pipeline (detect+track+LAB+Kalman+motion comp). CoreML FP16 export confirmed."
+  ]
+}

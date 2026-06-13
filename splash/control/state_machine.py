@@ -4,6 +4,14 @@ state_machine.py — Drone state management for Splash MCP server.
 States: IDLE → ARMED → FLYING → (ORBITING | ENGAGING) → RETURNING → IDLE
 Emergency: any state → DISARMED
 
+Battery-aware operation:
+  > 30%   Full operations
+  20-30%  Close-range engagement only
+  15-20%  Orbit-only, no engagement
+  < 15%   Force RETURN, prevent re-engagement
+
+Ammo tracking: 15 shots per 15ml reservoir
+
 Project Avatar — Splash water gun drone MCP tool server.
 """
 
@@ -17,6 +25,17 @@ from enum import Enum, auto
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger("splash.state")
+
+
+# ---------------------------------------------------------------------------
+# Battery thresholds
+# ---------------------------------------------------------------------------
+
+BATTERY_FULL = 30.0         # %
+BATTERY_CLOSE_RANGE = 20.0
+BATTERY_ORBIT_ONLY = 15.0
+BATTERY_CRITICAL = 15.0
+MAX_AMMO = 15                # 15ml reservoir = ~15 shots
 
 
 class DroneState(Enum):
@@ -79,11 +98,22 @@ class StateGuardError(Exception):
     pass
 
 
+class BatteryGuardError(Exception):
+    """Raised when battery level prevents a command."""
+    pass
+
+
+class AmmoGuardError(Exception):
+    """Raised when ammo is depleted."""
+    pass
+
+
 @dataclass
 class DroneContext:
     """Mutable context carried with the drone state machine.
 
-    Stores mission parameters, active targets, and protection zone info.
+    Stores mission parameters, active targets, protection zone info,
+    battery state, and ammo tracking.
     """
     # Current mission parameters
     home_lat: float = 0.0
@@ -107,11 +137,20 @@ class DroneContext:
     # Target info
     target_description: Optional[str] = None
     target_acquired: bool = False
+
+    # Ammo tracking
+    ammo_remaining: int = MAX_AMMO
     shots_fired: int = 0
+
+    # Battery
+    battery_pct: float = 100.0
 
     # Connection health
     last_heartbeat: float = field(default_factory=time.time)
     telemetry_age_s: float = 999.0
+
+    # Protection mode sub-state machine reference (optional)
+    protection_mode: Optional[Any] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -121,15 +160,47 @@ class DroneContext:
             "target_description": self.target_description,
             "target_acquired": self.target_acquired,
             "shots_fired": self.shots_fired,
+            "ammo_remaining": self.ammo_remaining,
+            "battery_pct": self.battery_pct,
+            "battery_level": self.battery_level_str(),
             "protect_zone": {
                 "center": [self.protect_center_lat, self.protect_center_lon],
                 "radius_m": self.protect_radius_m,
             } if self.protect_center_lat != 0 else None,
         }
 
+    def battery_level_str(self) -> str:
+        """Human-readable battery level description."""
+        if self.battery_pct >= BATTERY_FULL:
+            return "full"
+        elif self.battery_pct >= BATTERY_CLOSE_RANGE:
+            return "close_range_only"
+        elif self.battery_pct >= BATTERY_ORBIT_ONLY:
+            return "orbit_only"
+        else:
+            return "critical"
+
+    def can_engage(self) -> bool:
+        """Check if battery and ammo allow engagement."""
+        if self.battery_pct < BATTERY_CLOSE_RANGE:
+            return False
+        if self.ammo_remaining <= 0:
+            return False
+        return True
+
+    def use_ammo(self, count: int = 1) -> None:
+        """Consume ammo. Tracks shots_fired and ammo_remaining."""
+        used = min(count, self.ammo_remaining)
+        self.ammo_remaining -= used
+        self.shots_fired += used
+
+    def update_battery(self, pct: float) -> None:
+        """Update battery percentage and auto-return if critical."""
+        self.battery_pct = pct
+
 
 class StateMachine:
-    """Thread-safe drone state machine with transition guards."""
+    """Thread-safe drone state machine with transition guards and battery awareness."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -195,6 +266,33 @@ class StateMachine:
                 f"currently {self.state.name}"
             )
 
+    def guard_battery(self, require_engage: bool = False) -> None:
+        """Battery-aware guard. Raises BatteryGuardError if battery too low.
+
+        Args:
+            require_engage: If True, requires battery >= CLOSE_RANGE for engagement.
+                            If False, checks only CRITICAL threshold.
+        """
+        if require_engage and not self.context.can_engage():
+            raise BatteryGuardError(
+                f"Cannot engage: battery={self.context.battery_pct:.0f}%, "
+                f"ammo={self.context.ammo_remaining}. "
+                f"Need battery >= {BATTERY_CLOSE_RANGE:.0f}% and ammo > 0."
+            )
+        if self.context.battery_pct < BATTERY_CRITICAL:
+            raise BatteryGuardError(
+                f"Battery critical ({self.context.battery_pct:.0f}% < "
+                f"{BATTERY_CRITICAL:.0f}%) — RTB required."
+            )
+
+    def guard_ammo(self, require: int = 1) -> None:
+        """Raise AmmoGuardError if insufficient ammo."""
+        if self.context.ammo_remaining < require:
+            raise AmmoGuardError(
+                f"Insufficient ammo: {self.context.ammo_remaining} remaining, "
+                f"{require} required."
+            )
+
     def is_airborne(self) -> bool:
         return self.state in AIRBORNE_STATES
 
@@ -228,6 +326,9 @@ class StateMachine:
             self.transition(DroneState.ORBITING)
 
     def set_engaging(self) -> None:
+        # Battery + ammo guard
+        self.guard_battery(require_engage=True)
+        self.guard_ammo()
         if self.state != DroneState.ENGAGING:
             self.transition(DroneState.ENGAGING)
 
@@ -263,6 +364,28 @@ class StateMachine:
         logger.error(f"Drone ERROR: {reason}")
         if self.state != DroneState.ERROR:
             self.force_state(DroneState.ERROR)
+
+    # ------------------------------------------------------------------
+    # Battery monitoring helper
+    # ------------------------------------------------------------------
+
+    def check_battery_for_state(self) -> Optional[DroneState]:
+        """Check battery and suggest forced state transition.
+
+        Returns:
+            DroneState.RETURNING if battery critical and airborne,
+            DroneState.LANDING if battery critical and near ground,
+            None if battery OK.
+        """
+        if self.context.battery_pct < BATTERY_CRITICAL and self.is_airborne():
+            logger.warning(
+                f"Battery CRITICAL ({self.context.battery_pct:.0f}%) — "
+                f"forcing auto-RTB"
+            )
+            if self.state in (DroneState.FLYING, DroneState.ORBITING,
+                              DroneState.ENGAGING):
+                return DroneState.RETURNING
+        return None
 
     # ------------------------------------------------------------------
     # Status

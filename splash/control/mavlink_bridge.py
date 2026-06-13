@@ -540,6 +540,91 @@ class MavlinkBridge:
         }
 
     # ------------------------------------------------------------------
+    # SERVO_SET — Direct servo PWM control (pan/tilt)
+    # ------------------------------------------------------------------
+
+    def set_servo(self, servo_number: int, pwm_us: int) -> None:
+        """Set a servo PWM value using MAV_CMD_DO_SET_SERVO.
+
+        Args:
+            servo_number: ArduPilot servo output number (1-16).
+                          For Splash: servo 5 = Pan, servo 6 = Tilt.
+            pwm_us: Pulse width in microseconds (typically 1000-2000).
+
+        The servo must have an assigned SERVOn_FUNCTION in ArduPilot:
+          Pan:  SERVO5_FUNCTION=6  (Mount Pan)
+          Tilt: SERVO6_FUNCTION=7  (Mount Tilt)
+        """
+        logger.info(f"SERVO_SET: ch={servo_number} pwm={pwm_us}us")
+
+        # MAV_CMD_DO_SET_SERVO
+        self.send_command(
+            command=183,  # MAV_CMD_DO_SET_SERVO
+            params=[float(servo_number), float(pwm_us), 0, 0, 0, 0, 0],
+        )
+
+    def aim_servos(self, pan_deg: float, tilt_deg: float) -> None:
+        """Convenience: set pan and tilt servos from angles.
+
+        Converts angle (0-180°) to PWM pulse (1000-2000μs).
+        90° = center = 1500μs.
+
+        Args:
+            pan_deg: Pan angle (0=left, 90=center, 180=right)
+            tilt_deg: Tilt angle (0=up, 90=center, 180=down)
+        """
+        def deg_to_pwm(deg: float) -> int:
+            """Convert 0-180° to 1000-2000μs PWM."""
+            deg = max(0, min(180, deg))
+            return int(1000 + (deg / 180.0) * 1000)
+
+        pan_pwm = deg_to_pwm(pan_deg)
+        tilt_pwm = deg_to_pwm(tilt_deg)
+
+        self.set_servo(5, pan_pwm)   # SERVO5_FUNCTION=6 (Pan)
+        self.set_servo(6, tilt_pwm)  # SERVO6_FUNCTION=7 (Tilt)
+        logger.debug(f"Aim servos: pan={pan_deg:.0f}° ({pan_pwm}μs), "
+                     f"tilt={tilt_deg:.0f}° ({tilt_pwm}μs)")
+
+    # ------------------------------------------------------------------
+    # MAV_CMD_DO_ORBIT — Direct orbit command (no CIRCLE mode switch)
+    # ------------------------------------------------------------------
+
+    def do_orbit(self, center_lat: float, center_lon: float,
+                 radius_m: float, altitude_m: float,
+                 yaw_behaviour: int = 0) -> None:
+        """Execute orbit using MAV_CMD_DO_ORBIT (command 34).
+
+        This is the preferred approach for Splash protection mode because:
+          - Single command (no CIRCLE mode switch)
+          - Works in GUIDED mode (can interrupt with any other GUIDED command)
+          - Easier to return-to-orbit after engagement
+
+        Args:
+            center_lat: Orbit center latitude
+            center_lon: Orbit center longitude
+            radius_m: Orbit radius in meters
+            altitude_m: Orbit altitude (relative)
+            yaw_behaviour: 0=face center, 1=face direction of travel, etc.
+        """
+        logger.info(f"DO_ORBIT: center=({center_lat:.6f}, {center_lon:.6f}), "
+                     f"radius={radius_m}m, alt={altitude_m}m")
+
+        # MAV_CMD_DO_ORBIT (34)
+        # Parameters: radius, velocity (0=default), yaw_behaviour, 0,
+        #             lat, lon, alt
+        self.send_command(
+            command=34,  # MAV_CMD_DO_ORBIT
+            params=[radius_m, 0, float(yaw_behaviour), 0,
+                    center_lat, center_lon, altitude_m],
+        )
+
+    def stop_orbit(self) -> None:
+        """Stop orbit by switching back to GUIDED mode."""
+        self.set_mode("GUIDED")
+        logger.info("Orbit stopped — returned to GUIDED mode")
+
+    # ------------------------------------------------------------------
     # Engage / protect mode helpers
     # ------------------------------------------------------------------
 

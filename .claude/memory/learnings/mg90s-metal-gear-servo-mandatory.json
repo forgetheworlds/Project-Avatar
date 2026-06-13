@@ -1,0 +1,18 @@
+{
+  "learning_id": "mg90s-metal-gear-servo-mandatory",
+  "type": "hardware_requirement",
+  "title": "MG90S Metal Gear Servos are NON-NEGOTIABLE — SG90 Plastic Fails in Every Build",
+  "context": "Pan-tilt mechanism for water gun aiming. Servos must handle unbalanced load of water-filled pistol + dynamic slosh forces.",
+  "what_was_found": "EVERY documented water gun turret project (ESP32-CAM, Raspberry Pi, Arduino) reports that plastic SG90 servo gears strip within hours of operation when carrying an electric water pistol. The dave-ct/ai_object_plus_water project specifically abandoned the Pimoroni pan-tilt HAT because 'the servos did not have the power to support the water pistol components.' The ESP32-CAM water gun project explicitly recommends MG90S over SG90. The Cat Deterrent Turret project went further, using NEMA17 stepper motors for higher torque.",
+  "specifications": {
+    "sg90": "Plastic gears, 1.2 kg·cm stall torque, ~9g — FAILS under water pistol load",
+    "mg90s": "Metal gears, 1.8-2.2 kg·cm stall torque, ~13g — MINIMUM for water pistol",
+    "mg996r": "Metal gears, 10 kg·cm stall torque, ~55g — overkill for weight budget, used in TrackingPanTiltCam",
+    "nema17": "Stepper, highest torque, ~280g — too heavy for Splash"
+  },
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:35:00Z",
+  "applies_to": ["splash-water-gun-drone", "pan-tilt", "servo", "payload"],
+  "source": "Hour 7 Competitor Analysis — Multiple projects across ESP32-CAM, Raspberry Pi, Arduino ecosystems",
+  "action": "Update Splash BOM: replace SG90 with MG90S (2× ~13g = 26g total, +8g over SG90). Acceptable weight penalty for guaranteed reliability."
+}

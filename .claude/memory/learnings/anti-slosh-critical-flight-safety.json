@@ -1,0 +1,18 @@
+{
+  "learning_id": "anti-slosh-critical-flight-safety",
+  "type": "competitor_analysis",
+  "title": "Anti-Slosh Tank Engineering is the #1 Failure Mode for Liquid-Carrying Drones",
+  "context": "Splash carries ~15ml water reservoir. During flight maneuvers, liquid slosh creates a pendulum effect that destabilizes the PID loop, causing immediate crashes.",
+  "what_was_found": "Multiple Reddit threads (r/drones, r/diydrones) and Google AI Mode research confirm: unbaffled water tanks are the single most common cause of liquid-carrying drone crashes. The fluid momentum during stops/turns shifts CG unpredictably, sending the FC into chaotic over-correction.",
+  "fixes_identified": [
+    "Internal baffles — 3D print walls with tiny holes inside the tank (verified by multiple builds)",
+    "Open-cell anti-slosh foam — race car fuel cell material, restricts free fluid movement",
+    "Center-mount + vertical partition — slim tank design under frame center keeps CG stable as fluid drains",
+    "TPU material for tank — flexible, absorbs some slosh energy"
+  ],
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:35:00Z",
+  "applies_to": ["splash-water-gun-drone", "payload", "flight-safety", "mechanical-design"],
+  "source": "Hour 7 Competitor Analysis — Reddit r/drones, r/diydrones, Google AI Mode",
+  "action": "CAD design for anti-slosh tank REQUIRED before first flight. Test with water-filled tank on bench (no props) — verify CG doesn't shift during rapid attitude changes."
+}

@@ -1,0 +1,12 @@
+{
+  "learning_id": "pmw3901-optical-flow-battle-tested",
+  "type": "research_finding",
+  "title": "PMW3901+VL53L1X Optical Flow: Battle-Tested for Indoor Position Hold",
+  "context": "Project Avatar Splash water gun drone needs indoor position hold for Senior Assassins (hallways, gyms). The current $312 BOM has GPS-only positioning.",
+  "what_was_found": "The esp-drone repository (1852 stars) contains complete production-tested PMW3901+VL53L1X optical flow implementation. Key parameters: adaptive noise stdFlow = 0.0007984 * shutter + 0.4335, outlier rejection at 100 pixels, 100-200Hz update rate. ArduPilot integration is configuration-only: EK2_GPS_TYPE=3, FLOW_TYPE=1, FLOW_ENABLE=1, EK2_FLOW_M_NSE=0.15, RNGFND1_TYPE=36.",
+  "confidence": "high",
+  "extracted_at": "2026-05-22T23:27:00Z",
+  "applies_to": ["splash-water-gun-drone", "indoor-navigation", "optical-flow", "ardupilot"],
+  "source": "Nightly Research 2026-05-22, Finding 2 + Finding 5",
+  "action": "Add PMW3901+VL53L1X to BOM ($15, 3g). Connect to ArduPilot SPI/I2C bus. Configure EKF2 parameters."
+}
