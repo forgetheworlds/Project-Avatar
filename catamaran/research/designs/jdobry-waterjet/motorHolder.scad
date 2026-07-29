@@ -1,0 +1,15 @@
+include <waterJet.scad>
+
+fn=64;
+$fn=64;
+//fn=16;
+//$fn=16;
+
+//keelAngle=180; // flat keel
+
+//lowPoly = true;
+//cut = true; 
+
+rotate([0,90,180])
+//render() 
+motorHolder();
