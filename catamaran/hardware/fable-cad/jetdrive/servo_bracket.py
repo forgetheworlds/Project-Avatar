@@ -1,19 +1,22 @@
 """
-jetdrive/servo_bracket.py — SG90 steering-servo mount (DESIGN.md v1).
+jetdrive/servo_bracket.py — SG90 steering-servo mount.
 
 Local frame: base plate on XY, +Z up.
 
 Features:
-  - Base 46 x 20 x 3 with two 3.4 x 6 mounting slots at X=±14 (screws to
-    the Ø2.6 pilots on the stern transom inner face at (+4,67)/(+32,67)).
+  - Base 46 x 20 x 3 with two 3.4 x 6 mounting slots at X=±14.
   - SG90 pocket: 23.2 x 12.6 through-opening in a 3-wall cage 16 tall
     (two side walls + one back wall; front open for the wire exit).
   - Two Ø2.1 servo-flange pilots at X=±14 in the side-wall rims.
+  - Assembly placement keeps the complete bracket below the stern deck and
+    locates the servo output/linkage at the dedicated X=24, Z=38 passage.
 
 Print: flat.
 """
 
 import build123d as bd
+
+from interfaces import assert_single_solid
 
 # ── Base ────────────────────────────────────────────────────────
 BASE_X = 46.0
@@ -88,6 +91,12 @@ def gen_step() -> bd.Part:
             bd.Location((s * PILOT_X, 0, BASE_T + CAGE_H + 1.0)))
         body = body.cut(pilot)
 
+    body.label = "servo_bracket"
+    assert_single_solid(body, "servo_bracket", min_volume=2_000.0)
+    bbox = body.bounding_box()
+    assert abs(bbox.size.X - BASE_X) < 0.05
+    assert abs(bbox.size.Y - BASE_Y) < 0.05
+    assert abs(bbox.size.Z - (BASE_T + CAGE_H)) < 0.05
     return body
 
 

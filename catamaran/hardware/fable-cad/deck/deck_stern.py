@@ -1,107 +1,166 @@
-"""
-deck/deck_stern.py — stern deck lid (DESIGN.md v1).
+"""Stern deck lid with gasketed pump-well service-cover interface.
 
-Local frame: plate bottom on XY at Z=0 (top of hull deck flange), +Z up.
-Plate uses stern-segment local Y: screw holes land at (±45, Y=25, 75, 125)
-to match hull_stern deck-flange bosses; plate spans Y = 1..159 (158 long).
-
-Same construction as deck_mid (chamfered plate + downward locating lip),
-without the cannon pad. Features:
-  - Plate 124 x 158 x 3, corners chamfered 6 (plan view).
-  - Downward inner locating lip: rim outer 105 x 145, wall 3, 5 deep.
-  - 6x Ø3.4 screw holes at (±45, Y=25, 75, 125).
-  - Ø30 pump-well access hole at (+32, Y=45) (over the wet-well).
-  - Ø8 wire hole at (-20, Y=100).
+Local frame is stern-segment X/Y with plate bottom at Z=0.  Removing the
+whole lid exposes the propulsion servo and motor.  A smaller recessed cover
+at the starboard wet-well allows pump service without disturbing that seal.
 """
+
+import math
 
 import build123d as bd
 
-# Plate
-PLATE_W = 124.0            # X
-PLATE_L = 158.0            # Y
+PLATE_W = 124.0
+PLATE_L = 158.0
 PLATE_T = 3.0
 CHAMFER = 6.0
 Y0 = 1.0
 Y1 = Y0 + PLATE_L
-YC = (Y0 + Y1) / 2.0       # 80.0
+YC = (Y0 + Y1) / 2.0
 
-# Locating lip (downward)
 LIP_W = 105.0
 LIP_L = 145.0
 LIP_DEPTH = 5.0
 LIP_WALL = 3.0
 
-# Screw holes (match hull_stern flange bosses)
 SCREW_D = 3.4
 SCREW_X = 45.0
 SCREW_YS = (25.0, 75.0, 125.0)
 
-# Pump-well access hole
-ACCESS_D = 30.0
-ACCESS_X = 32.0
-ACCESS_Y = 45.0
+# Hull wet-well is fixed at (+32, 45), ID 38.  A Ø34.5 opening passes the
+# diagonal of a nominal 24 x 24 pump body with a small handling allowance.
+WELL_X = 32.0
+WELL_Y = 45.0
+ACCESS_D = 34.5
+SEAT_D = 42.0
+SEAT_DEPTH = 0.6
+REINFORCE_D = 47.0
+REINFORCE_T = 2.4
+COVER_PCD = 48.0
+COVER_PILOT_D = 2.6
 
-# Wire hole
-WIRE_D = 8.0
-WIRE_X = -20.0
-WIRE_Y = 100.0
+# Sealed cable gland for propulsion servo/motor wiring.  This replaces the
+# old unsealed Ø8 wire hole.
+PROP_GLAND_X = -20.0
+PROP_GLAND_Y = 108.0
+PROP_GLAND_D = 10.5
+PROP_GLAND_BOSS_D = 16.0
+PROP_GLAND_BOSS_H = 4.0
 
 
-def _cyl(d: float, h: float, x: float, y: float, z0: float) -> bd.Part:
-    return bd.Cylinder(d / 2.0, h).moved(bd.Location((x, y, z0 + h / 2.0)))
+def _cyl(diameter: float, height: float, x: float, y: float, z0: float) -> bd.Part:
+    return bd.Cylinder(diameter / 2.0, height).moved(
+        bd.Location((x, y, z0 + height / 2.0))
+    )
 
 
-def _box(lx: float, ly: float, lz: float, cx: float, cy: float,
-         z0: float) -> bd.Part:
-    return bd.Box(lx, ly, lz).moved(bd.Location((cx, cy, z0 + lz / 2.0)))
+def _box(
+    size_x: float,
+    size_y: float,
+    size_z: float,
+    center_x: float,
+    center_y: float,
+    z0: float,
+) -> bd.Part:
+    return bd.Box(size_x, size_y, size_z).moved(
+        bd.Location((center_x, center_y, z0 + size_z / 2.0))
+    )
 
 
 def _plate() -> bd.Part:
-    hx = PLATE_W / 2.0
-    c = CHAMFER
-    pts = [
-        (-hx + c, Y0), (hx - c, Y0), (hx, Y0 + c), (hx, Y1 - c),
-        (hx - c, Y1), (-hx + c, Y1), (-hx, Y1 - c), (-hx, Y0 + c),
+    half_x = PLATE_W / 2.0
+    points = [
+        (-half_x + CHAMFER, Y0),
+        (half_x - CHAMFER, Y0),
+        (half_x, Y0 + CHAMFER),
+        (half_x, Y1 - CHAMFER),
+        (half_x - CHAMFER, Y1),
+        (-half_x + CHAMFER, Y1),
+        (-half_x, Y1 - CHAMFER),
+        (-half_x, Y0 + CHAMFER),
     ]
-    with bd.BuildPart() as bp:
+    with bd.BuildPart() as build:
         with bd.BuildSketch(bd.Plane.XY):
             with bd.BuildLine():
-                bd.Polyline(*pts, close=True)
+                bd.Polyline(*points, close=True)
             bd.make_face()
-        bd.extrude(amount=PLATE_T, dir=(0, 0, 1))
-    return bp.part
+        bd.extrude(amount=PLATE_T)
+    return build.part
+
+
+def _pcd_points(pcd: float):
+    radius = pcd / 2.0
+    for degrees in (0.0, 90.0, 180.0, 270.0):
+        angle = math.radians(degrees)
+        yield WELL_X + radius * math.cos(angle), WELL_Y + radius * math.sin(angle)
 
 
 def gen_step() -> bd.Part:
     part = _plate()
 
-    # Downward locating lip (perimeter rim), Z = -LIP_DEPTH..0
-    lip = _box(LIP_W, LIP_L, LIP_DEPTH, 0.0, YC, -LIP_DEPTH)
-    lip = lip.cut(_box(LIP_W - 2 * LIP_WALL, LIP_L - 2 * LIP_WALL,
-                       LIP_DEPTH + 2.0, 0.0, YC, -LIP_DEPTH - 1.0))
-    part = part.fuse(lip)
+    # The earlier continuous locating lip occupied the hull's six lid-boss
+    # pads, the wet-well wall and the steering-servo hardpoints.  Six indexed
+    # screws already locate this lid; removing the redundant lip gives those
+    # service features real clearance while the flange gasket controls seal.
 
-    # 6x Ø3.4 screw holes
-    for sx in (-SCREW_X, SCREW_X):
-        for sy in SCREW_YS:
-            part = part.cut(_cyl(SCREW_D, PLATE_T + 2.0, sx, sy, -1.0))
+    for x in (-SCREW_X, SCREW_X):
+        for y in SCREW_YS:
+            part = part.cut(_cyl(SCREW_D, PLATE_T + 2.0, x, y, -1.0))
 
-    # Ø30 pump-well access hole
-    part = part.cut(_cyl(ACCESS_D, PLATE_T + 2.0, ACCESS_X, ACCESS_Y, -1.0))
+    # The hull's wet-well wall already backs this land.  A former underside
+    # reinforcement ring occupied that wall and made assembly impossible;
+    # the 3 mm lid plus the service cover now clamp directly across the wall.
+    part = part.cut(_cyl(ACCESS_D, PLATE_T + 2.0, WELL_X, WELL_Y, -1.0))
+    part = part.cut(
+        _cyl(SEAT_D, SEAT_DEPTH + 0.2, WELL_X, WELL_Y, PLATE_T - SEAT_DEPTH)
+    )
+    for x, y in _pcd_points(COVER_PCD):
+        part = part.cut(
+            _cyl(
+                COVER_PILOT_D,
+                PLATE_T + 2.0,
+                x,
+                y,
+                -1.0,
+            )
+        )
 
-    # Ø8 wire hole
-    part = part.cut(_cyl(WIRE_D, PLATE_T + 2.0, WIRE_X, WIRE_Y, -1.0))
+    # Purchased compression gland, not an open wire vent.
+    part = part.fuse(
+        _cyl(
+            PROP_GLAND_BOSS_D,
+            PROP_GLAND_BOSS_H,
+            PROP_GLAND_X,
+            PROP_GLAND_Y,
+            PLATE_T,
+        )
+    )
+    part = part.cut(
+        _cyl(
+            PROP_GLAND_D,
+            PLATE_T + PROP_GLAND_BOSS_H + 2.0,
+            PROP_GLAND_X,
+            PROP_GLAND_Y,
+            -1.0,
+        )
+    )
 
+    part.label = "deck_stern_service_layout"
     return part
 
 
 if __name__ == "__main__":
-    p = gen_step()
-    bb = p.bounding_box()
-    sz = bb.max - bb.min
-    print(f"bbox: {sz.X:.2f} x {sz.Y:.2f} x {sz.Z:.2f} mm "
-          f"(expect 124 x 158 x 8)")
-    print(f"solids: {len(p.solids())} (expect 1)")
-    assert abs(sz.X - PLATE_W) < 1e-6 and abs(sz.Y - PLATE_L) < 1e-6
-    assert abs(sz.Z - (PLATE_T + LIP_DEPTH)) < 1e-6
-    assert len(p.solids()) == 1
+    result = gen_step()
+    bbox = result.bounding_box()
+    size = bbox.max - bbox.min
+    nearest_lid_screw = min(
+        math.hypot(WELL_X - x, WELL_Y - y)
+        for x in (-SCREW_X, SCREW_X)
+        for y in SCREW_YS
+    )
+    print(f"bbox: {size.X:.2f} x {size.Y:.2f} x {size.Z:.2f} mm")
+    print(f"well-center to nearest deck screw: {nearest_lid_screw:.2f} mm")
+    assert abs(size.X - PLATE_W) < 1e-6
+    assert abs(size.Y - PLATE_L) < 1e-6
+    assert len(result.solids()) == 1
+    assert ACCESS_D >= math.hypot(24.0, 24.0)
+    assert nearest_lid_screw > SEAT_D / 2.0 + SCREW_D / 2.0

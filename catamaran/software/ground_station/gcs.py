@@ -121,7 +121,7 @@ async def keyboard_loop(conn):
             elif line.startswith("t"):
                 await conn.send("throttle", int(line[1:]))
             elif line.startswith("rudder"):
-                await conn.send("rudder", int(line[6:]))
+                await conn.send("steer", int(line[6:]))
             elif line == "s":
                 print(json.dumps(conn.telemetry, indent=2))
         except (EOFError, KeyboardInterrupt):

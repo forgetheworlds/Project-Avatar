@@ -1,47 +1,39 @@
 """
-hull_bow.py — wave-piercing bow segment (fable-cad DESIGN.md v1).
+hull_bow.py — frigate-style wave-piercing bow with pointed raked stem.
 
-Hull frame, local Y: 0 = stem tip, 160 = aft joint face.
-X = beam (+X starboard), Z = height (keel Z=0).
+Hull frame, local Y: prow tip at Y=0 (forward-most), aft joint at Y=SEG_L.
+X = beam (+starboard), Z = height (keel Z=0, deck Z=DEPTH).
 
-Lofted deep-V outer shell through XZ stations at Y = 0/40/80/120/160 with
-beam scale factors 0.05/0.35/0.65/0.88/1.00 (X scaled only; keel stays Z=0,
-deck stays Z=72). Matching inner loft (Y=WALL..157) subtracted for the
-cavity, leaving a solid aft bulkhead (sealed foam-filled buoyancy chamber).
-Integral full deck plate Z 69.6..72 with a Ø10 foam-fill hole at (0, 140).
-
-Aft (+Y) joint face per DESIGN.md joint interface:
-  - 2 alignment pins Ø3.0 x 4.0 tall at (±30, 45)
-  - 4 bosses Ø8 x 8 deep with Ø2.6 pilot holes (axis Y) at (±38, 58), (±24, 30)
-  - bulkhead otherwise solid (no wire hole, no clearance holes)
-
-Print upright on the joint face. ~110 g.
+Build method: loft a tapered deep-V (stable, same 5-vertex topology), then
+cut the stem and deck sheer with true YZ spline edges so the side silhouette
+is continuously fair and meets at a prow point — not a vertical brick face.
 """
+
+from __future__ import annotations
 
 import math
 import build123d as bd
 
-# ── Global hull constants (DESIGN.md, verbatim in every hull-frame part) ──
-BEAM = 120.0          # max beam at chine plane
-HALF_BEAM = 60.0
-DEPTH = 72.0          # keel to deck
-DEADRISE_DEG = 20.0
-CHINE_H = HALF_BEAM * math.tan(math.radians(DEADRISE_DEG))   # 21.84
-DECK_HALF = 64.0      # topside flare: chine (60, 21.84) -> deck edge (64, 72)
-WALL = 2.4
-SEG_L = 160.0         # each of bow / mid / stern
-BULK_T = 3.0          # joint bulkhead thickness
-FLANGE_W = 8.0        # inward deck flange lip width (mid + stern)
-FLANGE_T = 2.4        # deck flange thickness (Z 69.6..72)
-WL = 38.0             # est. static waterline (reference only)
+from hydrostatics import bow_deck_scale, bow_scale, smootherstep
 
-# Inner analytic offset profile (DESIGN.md — identical in all hull segments)
-IN_KEEL_Z = WALL / math.cos(math.radians(DEADRISE_DEG))      # 2.554
+# ── Global hull constants (match mid/stern) ─────────────────────
+BEAM = 120.0
+HALF_BEAM = 60.0
+DEPTH = 72.0
+DEADRISE_DEG = 20.0
+CHINE_H = HALF_BEAM * math.tan(math.radians(DEADRISE_DEG))  # 21.84
+DECK_HALF = 64.0
+WALL = 2.4
+SEG_L = 160.0
+BULK_T = 3.0
+FLANGE_T = 2.4
+
+IN_KEEL_Z = WALL / math.cos(math.radians(DEADRISE_DEG))
 IN_CHINE_X = 57.16
 IN_CHINE_Z = 22.88
 IN_DECK_X = 61.29
 
-# ── Segment joint interface (DESIGN.md — identical numbers in all segments) ──
+# Joint interface (unchanged — mates hull_mid)
 BOLT_POS = [(38.0, 58.0), (-38.0, 58.0), (24.0, 30.0), (-24.0, 30.0)]
 PIN_POS = [(30.0, 45.0), (-30.0, 45.0)]
 PIN_D = 3.0
@@ -49,51 +41,69 @@ PIN_L = 4.0
 BOSS_D = 8.0
 BOSS_DEPTH = 8.0
 PILOT_D = 2.6
-PILOT_DEPTH = 10.0    # pilot drilled 10 deep from the joint face (M3x12)
+PILOT_DEPTH = 10.0
 
-# ── Bow loft schedule ──
-STATION_Y = [0.0, 40.0, 80.0, 120.0, 160.0]
-STATION_S = [0.05, 0.35, 0.65, 0.88, 1.00]
-MIN_HALF_W = 1.2      # clamp for inner sections near the stem
+# ── Globally fair bow / stem / sheer ─────────────────────────────
+KEEL_ENTRY = 42.0
+STATION_Y = [0.0, 12.0, 28.0, 48.0, 72.0, 100.0, 130.0, 160.0]
+MIN_HALF_W = 1.0
+
+SHEER_LEN = 96.0
+SHEER_DROP = 8.0
+TIP_Z = DEPTH - SHEER_DROP  # 64; more forward reserve/freeboard
 
 FOAM_HOLE_D = 10.0
-FOAM_HOLE_Y = 140.0
+FOAM_HOLE_Y = 130.0
 
 
-def _scale_at(y: float) -> float:
-    """Linear interpolation of the beam scale schedule."""
-    for i in range(len(STATION_Y) - 1):
-        y0, y1 = STATION_Y[i], STATION_Y[i + 1]
-        if y0 <= y <= y1:
-            f = (y - y0) / (y1 - y0)
-            return STATION_S[i] + f * (STATION_S[i + 1] - STATION_S[i])
-    return STATION_S[-1]
+def stem_y(z: float) -> float:
+    """Y of the globally fair raked stem edge."""
+    if z >= TIP_Z:
+        return 0.0
+    return KEEL_ENTRY * (1.0 - smootherstep(z / TIP_Z))
 
 
-def _outer_pts(s: float):
+def sheer_z(y: float) -> float:
+    if y >= SHEER_LEN:
+        return DEPTH
+    return TIP_Z + (DEPTH - TIP_Z) * smootherstep(y / SHEER_LEN)
+
+
+def _outer_pts(y: float):
+    """Full-height deep-V, always 5 vertices, same winding."""
+    chine_x = max(HALF_BEAM * bow_scale(y), MIN_HALF_W)
+    deck_x = max(DECK_HALF * bow_deck_scale(y), MIN_HALF_W)
     return [
         (0.0, 0.0),
-        (HALF_BEAM * s, CHINE_H),
-        (DECK_HALF * s, DEPTH),
-        (-DECK_HALF * s, DEPTH),
-        (-HALF_BEAM * s, CHINE_H),
+        (chine_x, CHINE_H),
+        (deck_x, DEPTH),
+        (-deck_x, DEPTH),
+        (-chine_x, CHINE_H),
     ]
 
 
-def _inner_pts(s: float):
-    cx = max(IN_CHINE_X * s, MIN_HALF_W)
-    dx = max(IN_DECK_X * s, MIN_HALF_W)
+def _inner_pts(y: float):
+    """Offset-like cavity that converges to the exact joint inner profile."""
+    outer = _outer_pts(y)
+    cx = max(outer[1][0] - (HALF_BEAM - IN_CHINE_X), MIN_HALF_W)
+    dx = max(outer[2][0] - (DECK_HALF - IN_DECK_X), MIN_HALF_W)
+    if abs(y - (SEG_L - BULK_T)) < 1e-6:
+        # The cavity terminates at the forward face of the exact joint bulkhead.
+        cx, dx = IN_CHINE_X, IN_DECK_X
     return [
         (0.0, IN_KEEL_Z),
         (cx, IN_CHINE_Z),
-        (dx, DEPTH),
-        (-dx, DEPTH),
+        (dx, DEPTH - 0.5),
+        (-dx, DEPTH - 0.5),
         (-cx, IN_CHINE_Z),
     ]
 
 
+def _close(pts):
+    return list(zip(pts, pts[1:] + pts[:1]))
+
+
 def _cyl_y(d: float, y0: float, y1: float, x: float, z: float) -> bd.Part:
-    """Cylinder of diameter d along +Y from y0 to y1, axis at (x, z)."""
     c = bd.Cylinder(
         d / 2.0, y1 - y0,
         align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN),
@@ -101,64 +111,130 @@ def _cyl_y(d: float, y0: float, y1: float, x: float, z: float) -> bd.Part:
     return c.rotate(bd.Axis.X, -90).moved(bd.Location((x, y0, z)))
 
 
+def _extrude_yz_spline_region(
+    curve_pts: list[tuple[float, float]],
+    close_pts: list[tuple[float, float]],
+    amount: float,
+) -> bd.Part:
+    """Extrude a closed YZ region whose hydrodynamic edge is a true spline."""
+    with bd.BuildPart() as bp:
+        with bd.BuildSketch(bd.Plane.YZ):
+            with bd.BuildLine():
+                bd.Spline(*curve_pts)
+                bd.Polyline(curve_pts[-1], *close_pts, curve_pts[0])
+            bd.make_face()
+        bd.extrude(amount=amount, both=True)
+    return bp.part
+
+
+def _stem_cutter() -> bd.Part:
+    """Discard everything forward of the stem curve (Y < stem_y(Z))."""
+    curve = [
+        (stem_y(TIP_Z * i / 12.0) - 0.02, TIP_Z * i / 12.0)
+        for i in range(13)
+    ]
+    close = [(-6.0, TIP_Z + 0.02), (-6.0, -4.0), (KEEL_ENTRY + 4.0, -4.0)]
+    return _extrude_yz_spline_region(curve, close, DECK_HALF + 30.0)
+
+
+def _sheer_cutter() -> bd.Part:
+    """Discard everything above the sheer curve."""
+    curve = [
+        (SHEER_LEN * i / 12.0, sheer_z(SHEER_LEN * i / 12.0) + 0.05)
+        for i in range(13)
+    ]
+    close = [
+        (SHEER_LEN + 8.0, DEPTH + 0.5),
+        (SHEER_LEN + 8.0, DEPTH + SHEER_DROP + 8.0),
+        (-4.0, DEPTH + SHEER_DROP + 8.0),
+        (-4.0, TIP_Z),
+    ]
+    return _extrude_yz_spline_region(curve, close, DECK_HALF + 30.0)
+
+
 def gen_step() -> bd.Part:
-    # Outer lofted shell (Plane.XZ normal is -Y, so offset(-y) -> station at +y)
-    # NOTE: BuildLine/make_face must stay inline in this frame — build123d
-    # scopes builder auto-registration to the frame that created the builder.
+    # 1) Stable full-height tapered loft
     with bd.BuildPart() as outer_bp:
         for y in STATION_Y:
-            pts = _outer_pts(_scale_at(y))
+            pts = _outer_pts(y)
             with bd.BuildSketch(bd.Plane.XZ.offset(-y)):
                 with bd.BuildLine():
-                    for a, b in zip(pts, pts[1:] + pts[:1]):
+                    for a, b in _close(pts):
                         bd.Line(a, b)
                 bd.make_face()
-        bd.loft(ruled=True)
-    outer = outer_bp.part
+        bd.loft(ruled=False)
+    # OCC lofts can overshoot between sections.  The hard envelope makes
+    # 128 mm an invariant rather than an assumption.
+    beam_envelope = bd.Box(
+        2.0 * DECK_HALF,
+        SEG_L + 4.0,
+        DEPTH + 8.0,
+        align=(bd.Align.CENTER, bd.Align.MIN, bd.Align.MIN),
+    ).moved(bd.Location((0.0, -2.0, -4.0)))
+    clipped = outer_bp.part.intersect(beam_envelope)
+    clipped_shapes = list(clipped) if isinstance(clipped, bd.ShapeList) else [clipped]
+    outer = max(
+        (shape for shape in clipped_shapes if shape is not None),
+        key=lambda shape: shape.volume,
+    )
 
-    # Inner loft, Y = WALL .. SEG_L - BULK_T (aft bulkhead stays solid)
-    inner_ys = [WALL, 40.0, 80.0, 120.0, SEG_L - BULK_T]
+    stem_cut = _stem_cutter()
+    sheer_cut = _sheer_cutter()
+    hull = outer.cut(stem_cut).cut(sheer_cut)
+
+    # 2) Cavity — sealed tip plug forward of KEEL_ENTRY
+    cavity_start = KEEL_ENTRY + 12.0
+    inner_ys = [cavity_start, 72.0, 96.0, 122.0, 144.0, SEG_L - BULK_T]
     with bd.BuildPart() as inner_bp:
         for y in inner_ys:
-            pts = _inner_pts(_scale_at(y))
+            pts = _inner_pts(y)
             with bd.BuildSketch(bd.Plane.XZ.offset(-y)):
                 with bd.BuildLine():
-                    for a, b in zip(pts, pts[1:] + pts[:1]):
+                    for a, b in _close(pts):
                         bd.Line(a, b)
                 bd.make_face()
-        bd.loft(ruled=True)
-    cavity = inner_bp.part
+        bd.loft(ruled=False)
+    cavity = inner_bp.part.cut(stem_cut).cut(sheer_cut)
+    hull = hull.cut(cavity)
 
-    hull = outer.cut(cavity)
-
-    # Integral deck plate Z 69.6..72: slab intersected with the outer envelope
-    slab = bd.Box(
-        2.0 * DECK_HALF + 2.0, SEG_L, FLANGE_T,
+    # 3) Re-cap sealed tip (cutters can open the knife edge)
+    tip_box = bd.Box(
+        2.0 * DECK_HALF, KEEL_ENTRY + 8.0, DEPTH + 4.0,
         align=(bd.Align.CENTER, bd.Align.MIN, bd.Align.MIN),
-    ).moved(bd.Location((0.0, 0.0, DEPTH - FLANGE_T)))
+    ).moved(bd.Location((0.0, -1.0, -1.0)))
+    tip_cap = outer.intersect(tip_box)
+    tip_solids = list(tip_cap) if isinstance(tip_cap, bd.ShapeList) else [tip_cap]
+    for s in tip_solids:
+        if s is not None and s.volume > 1e-3:
+            hull = hull.fuse(s.cut(stem_cut).cut(sheer_cut))
+
+    # 4) Deck flange along sheered top
+    slab = bd.Box(
+        2.0 * DECK_HALF + 4.0, SEG_L + 4.0, FLANGE_T + SHEER_DROP + 4.0,
+        align=(bd.Align.CENTER, bd.Align.MIN, bd.Align.MIN),
+    ).moved(bd.Location((0.0, -2.0, TIP_Z - FLANGE_T - 1.0)))
     deck = outer.intersect(slab)
     deck_solids = list(deck) if isinstance(deck, bd.ShapeList) else [deck]
-    hull = hull.fuse(*deck_solids)
+    for s in deck_solids:
+        if s is not None and s.volume > 1e-3:
+            hull = hull.fuse(s.cut(stem_cut).cut(sheer_cut))
 
-    # Foam-fill hole Ø10 through the deck at (0, 140)
+    # 5) Clean foredeck: the cannon moves to the mid deck.
     foam = bd.Cylinder(
-        FOAM_HOLE_D / 2.0, FLANGE_T + 4.0,
+        FOAM_HOLE_D / 2.0, FLANGE_T + SHEER_DROP + 6.0,
         align=(bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN),
     ).moved(bd.Location((0.0, FOAM_HOLE_Y, DEPTH - FLANGE_T - 2.0)))
     hull = hull.cut(foam)
 
-    # Aft joint face (+Y): alignment pins
     for x, z in PIN_POS:
         hull = hull.fuse(_cyl_y(PIN_D, SEG_L, SEG_L + PIN_L, x, z))
-
-    # Aft joint face: Ø8 bosses 8 deep behind the bulkhead
     for x, z in BOLT_POS:
         hull = hull.fuse(_cyl_y(BOSS_D, SEG_L - BOSS_DEPTH, SEG_L, x, z))
-
-    # Ø2.6 pilot holes, axis Y, drilled from the joint face into the bosses
-    for x, z in BOLT_POS:
         hull = hull.cut(_cyl_y(PILOT_D, SEG_L - PILOT_DEPTH, SEG_L + 1.0, x, z))
 
+    if not isinstance(hull, bd.Part):
+        hull = bd.Part(hull.wrapped)
+    hull.label = "hull_bow"
     return hull
 
 
@@ -169,8 +245,14 @@ if __name__ == "__main__":
     print(f"Size: {sz.X:.2f} x {sz.Y:.2f} x {sz.Z:.2f} mm")
     print(f"BBox: min({bb.min.X:.2f},{bb.min.Y:.2f},{bb.min.Z:.2f}) "
           f"max({bb.max.X:.2f},{bb.max.Y:.2f},{bb.max.Z:.2f})")
-    ok = (abs(sz.X - 2 * DECK_HALF) < 0.5
-          and abs(sz.Y - (SEG_L + PIN_L)) < 0.5
-          and abs(sz.Z - DEPTH) < 0.5)
-    print(f"Expected ~128 x 164 x 72: {'OK' if ok else 'MISMATCH'}")
-    print(f"Volume: {p.volume / 1000.0:.1f} cm^3")
+    print(f"Volume: {sum(s.volume for s in p.solids()) / 1000.0:.1f} cm^3")
+    print(f"solids: {len(p.solids())}")
+    print(f"Tip Z={TIP_Z}, KEEL_ENTRY={KEEL_ENTRY}, SHEER_DROP={SHEER_DROP}")
+    assert len(p.solids()) == 1
+    assert sz.X <= 2.0 * DECK_HALF + 0.05
+    assert abs(sz.Y - (SEG_L + PIN_L)) < 0.1
+    assert sz.Z <= DEPTH + 0.05
+    joint_inner = _inner_pts(SEG_L - BULK_T)
+    assert abs(joint_inner[1][0] - IN_CHINE_X) < 1e-9
+    assert abs(joint_inner[2][0] - IN_DECK_X) < 1e-9
+    print("self-check OK")

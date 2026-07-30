@@ -54,11 +54,13 @@ keel inner apex `(0, WALL/cos(radians(DEADRISE_DEG)))` = (0, 2.554); inner chine
 
 ## Parts
 
-### hull/hull_bow.py — wave-piercing bow (Y local 0=stem, 160=joint)
-- Loft outer shell through XZ stations at Y = 0, 40, 80, 120, 160 with beam scale factors **0.05, 0.35, 0.65, 0.88, 1.00** (scale X coordinates only; keel stays Z=0, deck stays Z=72 → plumb stem, deadrise sharpens forward). Loft matching inner stations (inner profile, same scales, min half-width clamp ≥1.2) from Y=WALL to 160 and subtract.
-- Integral full deck plate (Z 69.6..72) closing the top; Ø10 foam-fill hole at (0, Y=140).
-- Aft bulkhead per joint interface (+Y face: pins + pilot bosses, solid plate).
-- Print: upright, joint face on bed. ~110g.
+### hull/hull_bow.py — frigate-style bow (Y local 0=deck tip, 160=joint)
+- Smooth **forward-rake stem curve**: deck tip at Y=0 overhangs the keel entry by ~28 mm (stem Y(z) uses a smoothstep ease — not a straight rake, not a plumb wall).
+- Sharper plan taper (tip scale 0.02) + denser loft stations + smooth loft.
+- Sealed stem plug near the tip (foam buoyancy), integral deck, Ø10 foam-fill hole.
+- **Foredeck cannon pad**: Ø46 × 3 at (0, Y=55) with 4× Ø2.6 on Ø32 PCD (water_cannon bolts here, aimed FORWARD / −Y).
+- Aft bulkhead joint interface unchanged (mates mid).
+- Print: upright on joint face. ~110–150g.
 
 ### hull/hull_mid.py — constant section (Y local 0=fwd joint, 160=aft joint)
 - Extruded outer/inner section, hollow, open deck with FLANGE_W deck flange lips both sides full length.
@@ -78,22 +80,23 @@ keel inner apex `(0, WALL/cos(radians(DEADRISE_DEG)))` = (0, 2.554); inner chine
 
 ### jetdrive/pump_housing.py — bolt-in jet pump (hull frame, stern-local Y)
 - Tunnel: Ø28 ID / wall 2.4 (Ø32.8 OD), axis (X=0, Z=40), Y=64..157.
-- Front wall Y=64..68 (4 thick): closes tunnel; center Ø10 shaft hole; motor mount = 4 radial slots 3.2 wide from r=8 to r=10 at 90° spacing (fits 2838 16–19mm hole patterns), on a Ø38 front boss.
-- Intake duct: opening in tunnel bottom Y=74..122 flaring down to a rectangular mouth 24 × (Y=70..120) at Z=8 matching the stern intake aperture; front ramp wall sloped ≈30° from mouth floor up to tunnel; fair rear lip. Duct walls 2.4.
+- Front wall Y=64..68 (4 thick): closes tunnel; **Ø4.2 shaft bore** + **Ø7×5 bushing pocket** (aft, for flanged brass/PTFE) + **Ø12×2 coupler recess** (forward); motor mount = 4 radial slots 3.2 wide from r=8 to r=10 at 90° spacing (fits 2838 16–19mm hole patterns), on a Ø38 front boss.
+- Intake duct: **curved scoop ramp** (multi-station loft) from rectangular mouth 24 × (Y=70..120) at Z=8 up into the tunnel — not a brick pedestal; front ramp eases into bore; fair rear lip. Duct walls 2.4.
 - **Intake flange**: perimeter flange 6 wide around the mouth, flat underside at Z=8.0 (seals on stern pad, silicone gasket); 6× Ø3.4 clearance holes matching stern pad pilots (±15.5, Y=76, 97, 118).
 - **Integral grate**: 3 longitudinal bars 2.5 wide × 3 deep across the mouth (along Y), even spacing (gaps ≤5.5mm).
 - **Exit flange**: Ø44 disc, Y=153..157 (presses on transom inner face); 4× Ø2.6 pilot holes on Ø42 PCD (45° positions, matching transom clearance holes); tunnel bore continues through it.
 - Shaft: 4mm shaft + 3.175→4 coupler (purchased) runs through the intake region to the impeller — standard jet-drive layout.
 - Print: standing on exit flange, tunnel vertical. ~55g.
 
-### jetdrive/impeller.py — 3-blade impeller (local: axis Z, origin hub base)
-- Hub Ø10 × 18 long; bore Ø4.05 through (4mm shaft, slip + set screw); radial Ø2.6 set-screw pilot at mid-hub.
-- 3 blades at 120°: twisted loft from root chord angle 35° (from rotation plane) to tip 22°; radial span r=5 → 13.5 (OD 27 = 0.5 tip clearance in Ø28 tunnel); blade thickness 1.8, chord ~12 root → ~9 tip; blades swept back (scimitar) ~15°.
-- Consumable — print 2. Print: hub down, supports allowed (small part). ~5g.
+### jetdrive/impeller.py — helical 3-blade impeller (jdobry-faithful, local: axis Z)
+- Hub Ø10 × 19; bore Ø4.05 + M3 set-screw pilot (4 mm shaft; 2838 via 3.175→4 coupler).
+- **Helical blades** (not flat plates): axial loft with 120° twist + tip camber, topology from Jiri Dobry waterJet (`research/designs/jdobry-waterjet`), scaled to Ø28 tunnel; OD 27 (chamber−1).
+- Consumable — print 2 in PETG. Print: hub down, 0.1–0.15 mm, 100% infill.
 
 ### jetdrive/nozzle_plate.py — fixed transom plate + stator (local: plate on XY, flow +Z)
-- Plate 60 × 60 × 4; center bore Ø28; bore extends as a stub tube Ø28 ID / Ø32.8 OD × 14 proud on the aft side; **4 stator vanes** 2 thick × 12 long inside the stub (cross pattern, hub Ø8 center body).
-- 4× Ø3.4 clearance holes Ø42 PCD (45° positions) — M3×16 from outside through plate + transom into pump exit-flange pilots (clamps and seals transom).
+- Plate 60 × 60 × 4; center bore Ø28; bore extends as a stub tube Ø28 ID / Ø32.8 OD × 14 proud on the aft side; **4 stator vanes** inside the stub with Ø11 hub.
+- **MR74ZZ bearing seat** Ø7.2 × 3 in the stator hub (same bearing as jdobry waterJet) + Ø4.2 shaft clearance aft.
+- 4× Ø3.4 clearance holes Ø42 PCD (45° positions; Y negated for rx=−90 assembly) — M3×16 from outside through plate + transom into pump exit-flange pilots.
 - Pivot lugs: top + bottom, extending 18 aft, Ø3.4 vertical holes coaxial at 14 aft of plate face.
 - Print: flat on plate. ~20g.
 

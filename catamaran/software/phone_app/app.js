@@ -11,6 +11,7 @@ const state = {
   cmd: { throttle: 0, rudder: 0, cannon: false },
   joystick: { active: false, touchId: null }
 };
+const STEERING_LIMIT_DEG = 18; // Commissioning limit; mechanical stop is ±25°.
 
 function connect() {
   const input = document.getElementById("boat-ip");
@@ -78,15 +79,15 @@ function setupJoy() {
     if (Math.abs(p.nx) < 0.08) p.nx = 0;
     if (Math.abs(p.ny) < 0.08) p.ny = 0;
     state.cmd.throttle = Math.round(-p.ny * 100);
-    state.cmd.rudder = Math.round(p.nx * 90);
+    state.cmd.rudder = Math.round(p.nx * STEERING_LIMIT_DEG);
     send("throttle", state.cmd.throttle);
-    send("rudder", state.cmd.rudder);
+    send("steer", state.cmd.rudder);
   }
 
   function reset() {
     knob.style.transform = "";
     state.cmd.throttle = 0; state.cmd.rudder = 0;
-    send("throttle", 0); send("rudder", 0);
+    send("throttle", 0); send("steer", 0);
   }
 
   base.addEventListener("touchstart", e => {
@@ -131,14 +132,14 @@ document.addEventListener("keydown", e => {
   switch(e.key) {
     case "w": case "ArrowUp": send("throttle", Math.min(100, (state.cmd.throttle||0)+20)); break;
     case "s": case "ArrowDown": send("throttle", Math.max(-100, (state.cmd.throttle||0)-20)); break;
-    case "a": case "ArrowLeft": send("rudder", -45); break;
-    case "d": case "ArrowRight": send("rudder", 45); break;
+    case "a": case "ArrowLeft": send("steer", -STEERING_LIMIT_DEG); break;
+    case "d": case "ArrowRight": send("steer", STEERING_LIMIT_DEG); break;
     case " ": e.preventDefault(); send("cannon",1); break;
   }
 });
 document.addEventListener("keyup", e => {
   if (["w","s","ArrowUp","ArrowDown"].includes(e.key)) send("throttle",0);
-  if (["a","d","ArrowLeft","ArrowRight"].includes(e.key)) send("rudder",0);
+  if (["a","d","ArrowLeft","ArrowRight"].includes(e.key)) send("steer",0);
   if (e.key === " ") send("cannon",0);
 });
 

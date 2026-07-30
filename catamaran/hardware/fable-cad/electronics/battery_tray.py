@@ -1,93 +1,166 @@
-"""
-electronics/battery_tray.py — 3S 2200 battery cradle (DESIGN.md v1).
+"""Low-CG 3S 2200 mAh battery cradle for the mid-segment bilge.
 
-Local frame: saddle underside apex (keel line) on the X axis at Z=0,
-+Z up, length along Y (Y = 0..120). Sits in the mid segment on the keel.
-
-For a 106 x 35 x 26 pack:
-  - Saddle 120 long (Y) x 60 wide (X); underside is a 20° V matching the
-    hull deadrise (apex at X=0, Z=0; rises to Z=30*tan(20°)=10.92 at X=±30).
-  - Flat bed on top of the V (min 3 thick at the edges).
-  - Side walls 3 thick x 8 tall along both long edges.
-  - End stops 3 thick x 12 tall at both ends.
-  - 2 strap slots 12 x 3 through BOTH side walls (Y centers 30 and 90),
-    for velcro straps over the pack.
+Local Y is exactly 0..120.  The assembly places Y=0 at global Y=180, putting
+the tray at mid-local Y=20..140.  The 106 x 35 x 26 mm pack has 1.25 mm side
+clearance and 1.5 mm clearance at both retaining faces.  Its lead exits aft
+through a protected open cable tail rather than being crushed by an end wall.
 """
 
 import math
+
 import build123d as bd
 
-PACK_L, PACK_W, PACK_H = 106.0, 35.0, 26.0   # reference only
+PACK_L = 106.0
+PACK_W = 35.0
+PACK_H = 26.0
+PACK_SIDE_CLEARANCE = 1.25
+PACK_END_CLEARANCE = 1.5
 
-SADDLE_L = 120.0           # Y
-SADDLE_W = 60.0            # X
-DEADRISE_DEG = 20.0
-V_RISE = (SADDLE_W / 2.0) * math.tan(math.radians(DEADRISE_DEG))  # 10.919
-BED_MIN_T = 3.0
-BED_Z = V_RISE + BED_MIN_T                    # 13.919 (flat bed top)
-
+TRAY_L = 120.0
+INNER_W = PACK_W + 2.0 * PACK_SIDE_CLEARANCE
 WALL_T = 3.0
-WALL_H = 8.0               # side walls above bed
-STOP_H = 12.0              # end stops above bed
+TRAY_W = INNER_W + 2.0 * WALL_T
 
-SLOT_L = 12.0              # strap slot, long axis Y
-SLOT_H = 3.0               # slot height (Z)
-SLOT_YS = (30.0, 90.0)
-SLOT_Z0 = BED_Z + 2.5      # slot bottom above bed
+DEADRISE_DEG = 20.0
+V_RISE = (TRAY_W / 2.0) * math.tan(math.radians(DEADRISE_DEG))
+BED_MIN_T = 3.0
+BED_Z = V_RISE + BED_MIN_T
+
+SIDE_WALL_H = 8.0
+STOP_H = 10.0
+FRONT_STOP_Y0 = 0.0
+FRONT_STOP_Y1 = WALL_T
+PACK_Y0 = FRONT_STOP_Y1 + PACK_END_CLEARANCE
+PACK_Y1 = PACK_Y0 + PACK_L
+AFT_STOP_Y0 = PACK_Y1 + PACK_END_CLEARANCE
+AFT_STOP_Y1 = AFT_STOP_Y0 + WALL_T
+CABLE_TAIL_L = TRAY_L - AFT_STOP_Y1
+
+# Paired bed slots allow two 12 mm hook-and-loop straps to pass under the pack.
+STRAP_SLOT_X = INNER_W / 2.0 + 0.5
+STRAP_SLOT_YS = (34.0, 80.0)
+STRAP_SLOT_X_SIZE = 3.2
+STRAP_SLOT_Y_SIZE = 14.0
+
+# Aft lead clip supports the 6 mm wire bundle without imposing a sharp bend.
+LEAD_CLIP_INNER_D = 7.0
+LEAD_CLIP_WALL = 2.0
+LEAD_CLIP_Y = 117.0
+LEAD_CLIP_H = 6.0
 
 
-def _box(lx: float, ly: float, lz: float, cx: float, cy: float,
-         z0: float) -> bd.Part:
-    return bd.Box(lx, ly, lz).moved(bd.Location((cx, cy, z0 + lz / 2.0)))
+def _box(
+    size_x: float,
+    size_y: float,
+    size_z: float,
+    center_x: float,
+    center_y: float,
+    z0: float,
+) -> bd.Part:
+    return bd.Box(size_x, size_y, size_z).moved(
+        bd.Location((center_x, center_y, z0 + size_z / 2.0))
+    )
 
 
 def _saddle() -> bd.Part:
-    """V-bottom saddle body, extruded along +Y from Y=0 to Y=SADDLE_L."""
-    hw = SADDLE_W / 2.0
-    pts = [
+    half_width = TRAY_W / 2.0
+    points = [
         (0.0, 0.0),
-        (hw, V_RISE),
-        (hw, BED_Z),
-        (-hw, BED_Z),
-        (-hw, V_RISE),
+        (half_width, V_RISE),
+        (half_width, BED_Z),
+        (-half_width, BED_Z),
+        (-half_width, V_RISE),
     ]
-    with bd.BuildPart() as bp:
+    with bd.BuildPart() as build:
         with bd.BuildSketch(bd.Plane.XZ):
             with bd.BuildLine():
-                bd.Polyline(*pts, close=True)
+                bd.Polyline(*points, close=True)
             bd.make_face()
-        bd.extrude(amount=SADDLE_L, dir=(0, 1, 0))
-    return bp.part
+        bd.extrude(amount=TRAY_L, dir=(0, 1, 0))
+    return build.part
 
 
 def gen_step() -> bd.Part:
     part = _saddle()
 
-    # Side walls (outer faces flush with saddle sides)
-    for sx in (-(SADDLE_W - WALL_T) / 2.0, (SADDLE_W - WALL_T) / 2.0):
-        part = part.fuse(_box(WALL_T, SADDLE_L, WALL_H,
-                              sx, SADDLE_L / 2.0, BED_Z))
+    wall_center_x = INNER_W / 2.0 + WALL_T / 2.0
+    for x in (-wall_center_x, wall_center_x):
+        part = part.fuse(
+            _box(WALL_T, AFT_STOP_Y1, SIDE_WALL_H, x, AFT_STOP_Y1 / 2.0, BED_Z)
+        )
 
-    # End stops (outer faces flush with saddle ends)
-    for sy in (WALL_T / 2.0, SADDLE_L - WALL_T / 2.0):
-        part = part.fuse(_box(SADDLE_W, WALL_T, STOP_H,
-                              0.0, sy, BED_Z))
+    part = part.fuse(
+        _box(
+            TRAY_W,
+            WALL_T,
+            STOP_H,
+            0.0,
+            (FRONT_STOP_Y0 + FRONT_STOP_Y1) / 2.0,
+            BED_Z,
+        )
+    )
+    part = part.fuse(
+        _box(
+            TRAY_W,
+            WALL_T,
+            STOP_H,
+            0.0,
+            (AFT_STOP_Y0 + AFT_STOP_Y1) / 2.0,
+            BED_Z,
+        )
+    )
 
-    # Strap slots through both side walls
-    for sy in SLOT_YS:
-        part = part.cut(_box(SADDLE_W + 2.0, SLOT_L, SLOT_H,
-                             0.0, sy, SLOT_Z0))
+    for y in STRAP_SLOT_YS:
+        for x in (-STRAP_SLOT_X, STRAP_SLOT_X):
+            part = part.cut(
+                _box(
+                    STRAP_SLOT_X_SIZE,
+                    STRAP_SLOT_Y_SIZE,
+                    BED_Z + 2.0,
+                    x,
+                    y,
+                    -1.0,
+                )
+            )
 
+    # Open-top C clip on the cable tail.  The side opening lets the lead snap
+    # in after the battery is strapped down.
+    clip_outer_d = LEAD_CLIP_INNER_D + 2.0 * LEAD_CLIP_WALL
+    clip = bd.Cylinder(clip_outer_d / 2.0, LEAD_CLIP_H).rotate(
+        bd.Axis.X, 90.0
+    ).moved(bd.Location((0.0, LEAD_CLIP_Y, BED_Z + LEAD_CLIP_H / 2.0)))
+    clip = clip.cut(
+        bd.Cylinder(LEAD_CLIP_INNER_D / 2.0, LEAD_CLIP_H + 2.0)
+        .rotate(bd.Axis.X, 90.0)
+        .moved(bd.Location((0.0, LEAD_CLIP_Y, BED_Z + LEAD_CLIP_H / 2.0)))
+    )
+    clip = clip.cut(
+        _box(
+            LEAD_CLIP_INNER_D,
+            LEAD_CLIP_H + 4.0,
+            clip_outer_d,
+            0.0,
+            LEAD_CLIP_Y,
+            BED_Z + LEAD_CLIP_H / 2.0,
+        )
+    )
+    part = part.fuse(clip)
+
+    part.label = "battery_3s2200_low_cg_tray"
     return part
 
 
 if __name__ == "__main__":
-    p = gen_step()
-    bb = p.bounding_box()
-    sz = bb.max - bb.min
-    print(f"bbox: {sz.X:.2f} x {sz.Y:.2f} x {sz.Z:.2f} mm "
-          f"(expect 60 x 120 x {BED_Z + STOP_H:.2f})")
-    print(f"solids: {len(p.solids())} (expect 1)")
-    assert abs(sz.X - SADDLE_W) < 1e-6 and abs(sz.Y - SADDLE_L) < 1e-6
-    assert abs(sz.Z - (BED_Z + STOP_H)) < 1e-6
-    assert len(p.solids()) == 1
+    result = gen_step()
+    bbox = result.bounding_box()
+    size = bbox.max - bbox.min
+    print(f"bbox: {size.X:.2f} x {size.Y:.2f} x {size.Z:.2f} mm")
+    print(
+        f"pack clearances: side={PACK_SIDE_CLEARANCE:.2f}, "
+        f"front/aft={PACK_END_CLEARANCE:.2f} mm; cable tail={CABLE_TAIL_L:.2f}"
+    )
+    assert len(result.solids()) == 1
+    assert abs(size.Y - TRAY_L) < 1e-6
+    assert PACK_SIDE_CLEARANCE >= 1.0
+    assert PACK_END_CLEARANCE >= 1.0
+    assert AFT_STOP_Y1 <= TRAY_L

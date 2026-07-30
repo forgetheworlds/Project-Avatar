@@ -8,7 +8,7 @@ Features:
     (identical clocking to deck_mid pad Ø44 pilots).
   - Cylindrical body Ø50 OD / wall 2.4, 27 tall (Z=3..30), closed by an
     integral 2.4-thick top plate.
-  - SG90 pocket 23.2 x 12.6 cut through the top face, centered on the
+  - SG90 pocket 23.8 x 13.2 cut through the top face, centered on the
     part axis, long axis X (servo drops in from top, output spline up).
   - 2x Ø2.1 servo-flange pilots at (±14, 0), reinforced by Ø6 bosses
     hanging under the top plate.
@@ -32,8 +32,11 @@ BODY_WALL = 2.4
 BODY_H = 27.0              # Z = BASE_T .. BASE_T + BODY_H
 TOP_T = 2.4                # integral top plate thickness
 
-POCKET_L = 23.2            # X (servo long axis)
-POCKET_W = 12.6            # Y
+SG90_BODY_L = 22.8
+SG90_BODY_W = 12.2
+FDM_CLEARANCE_PER_SIDE = 0.5
+POCKET_L = SG90_BODY_L + 2.0 * FDM_CLEARANCE_PER_SIDE
+POCKET_W = SG90_BODY_W + 2.0 * FDM_CLEARANCE_PER_SIDE
 SERVO_PILOT_D = 2.1
 SERVO_PILOT_X = 14.0
 SERVO_BOSS_D = 6.0
@@ -99,6 +102,8 @@ def gen_step() -> bd.Part:
 
 
 if __name__ == "__main__":
+    from pathlib import Path
+
     p = gen_step()
     bb = p.bounding_box()
     sz = bb.max - bb.min
@@ -108,3 +113,16 @@ if __name__ == "__main__":
     assert abs(sz.X - BASE_D) < 1e-6 and abs(sz.Y - BASE_D) < 1e-6
     assert abs(sz.Z - TOP_Z) < 1e-6
     assert len(p.solids()) == 1
+    assert (POCKET_L - SG90_BODY_L) / 2.0 >= 0.5
+    assert (POCKET_W - SG90_BODY_W) / 2.0 >= 0.5
+    servo_path = Path(__file__).resolve().parents[1] / "components" / "sg90_micro_servo.step"
+    exact_servo = bd.import_step(str(servo_path))
+    exact_bbox = exact_servo.bounding_box()
+    exact_size = exact_bbox.max - exact_bbox.min
+    print(
+        f"exact SG90 STEP full envelope: "
+        f"{exact_size.X:.2f} x {exact_size.Y:.2f} x {exact_size.Z:.2f} mm"
+    )
+    # The downloaded model's 11.8 mm X is its molded body width; its 32.4 mm
+    # Y includes mounting ears, which remain above the pocket on the top land.
+    assert POCKET_W - exact_size.X >= 1.0

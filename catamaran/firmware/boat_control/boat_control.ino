@@ -1,5 +1,5 @@
 /*
- * Project Boat — ESP32-S3 Boat Control Firmware
+ * Project Catamaran — ESP32-S3 Boat Control Firmware
  *
  * Monohull deep-V with jet drive. ESP32-S3 handles all real-time control:
  *   Core 0: 50Hz PID heading-hold + PWM output
@@ -25,9 +25,13 @@
  *
  * Safety:
  *   - 2-second fail-safe: no command → throttle zero, nozzle center
- *   - Water ingress: alarm + throttle toward shore
+ *   - Water ingress: immediate propulsion and cannon shutdown
  *   - Low battery: throttle 30%, return to shore
- *   - Cannon interlock: fire only if water sensor dry AND throttle < 30%
+ *   - Cannon interlock: fire only if bilge is dry AND throttle < 30%
+ *
+ * The ingress probe is not a lake-water/pump-prime sensor. It cannot prove
+ * that the cannon pickup is submerged, so cannon commissioning must still be
+ * done with the pickup wet.
  */
 
 #include <WiFi.h>
@@ -60,13 +64,21 @@ const char* WIFI_PASS = "yourpassword";      // Change to your hotspot password
 // ===== PWM Configuration =====
 const int PWM_FREQ = 50;         // 50Hz for ESC and servos
 const int PWM_RES = 16;          // 16-bit resolution (0-65535)
-const int PWM_CH_ESC = 0;
-const int PWM_CH_NOZZLE = 1;
 
 // PWM pulse width range in microseconds
 const int PWM_MIN_US = 1000;
 const int PWM_MAX_US = 2000;
 const int PWM_MID_US = 1500;
+
+// Steering linkage contract:
+//   SG90 horn radius 14 mm / nozzle horn effective radius 34 mm.
+//   About 60 degrees of servo travel produces 25 degrees of nozzle travel,
+//   with opposite sign for the current horn side. Commission at ±18 degrees
+//   nozzle; raise to 25 only after measuring pulse endpoints and stall current.
+const int NOZZLE_MECH_MAX_DEG = 25;
+const int NOZZLE_SOFT_LIMIT_DEG = 18;
+const float SERVO_DEG_AT_MECH_LIMIT = 60.0f;
+const int SERVO_US_AT_60_DEG = 500;
 
 // ===== Fail-Safe =====
 const unsigned long FS_TIMEOUT = 2000;  // ms without command → cut throttle
@@ -75,6 +87,8 @@ unsigned long last_command_ms = 0;
 // ===== Telemetry =====
 const unsigned long TELEMETRY_INTERVAL = 1000;  // 1Hz
 unsigned long last_telemetry_ms = 0;
+const unsigned long GUARDIAN_INTERVAL = 100;    // 10Hz
+unsigned long last_guardian_ms = 0;
 
 // ===== Control Loop =====
 const unsigned long PID_INTERVAL = 20;  // 50Hz PID loop
@@ -100,7 +114,7 @@ const float DEAD_BAND = 3.0;  // degrees around target
 // ===== State =====
 struct {
   int throttle = 0;     // -100 to 100
-  int nozzle = 0;       // -90 to 90 (nozzle angle)
+  int nozzle = 0;       // commanded nozzle angle in degrees
   bool cannon = false;
   bool autopilot = false;
 } cmd;
@@ -124,22 +138,29 @@ int mapToPWM(int val, int in_min, int in_max) {
 }
 
 // ===== Helper: Write ESC/servo channel =====
-void setPWM(int channel, int value_us) {
+void setPWM(int pin, int value_us) {
   // Convert microseconds to 16-bit duty cycle at 50Hz (20ms period)
   // duty = value_us / 20000 * 65535
   int duty = (int)((float)value_us / 20000.0f * 65535.0f);
-  ledcWrite(channel, constrain(duty, 0, 65535));
+  ledcWrite(pin, constrain(duty, 0, 65535));
 }
 
 // ===== Map command range to PWM =====
 void setThrottle(int val) {
   int us = map(val, -100, 100, PWM_MIN_US, PWM_MAX_US);
-  setPWM(PWM_CH_ESC, us);
+  setPWM(PIN_ESC, us);
 }
 
 void setNozzle(int val) {
-  int us = map(val, -90, 90, PWM_MIN_US, PWM_MAX_US);
-  setPWM(PWM_CH_NOZZLE, us);
+  int nozzle_deg = constrain(
+    val, -NOZZLE_SOFT_LIMIT_DEG, NOZZLE_SOFT_LIMIT_DEG
+  );
+  float servo_deg = -(float)nozzle_deg
+                    * SERVO_DEG_AT_MECH_LIMIT
+                    / (float)NOZZLE_MECH_MAX_DEG;
+  int us = PWM_MID_US
+           + (int)(servo_deg * SERVO_US_AT_60_DEG / 60.0f);
+  setPWM(PIN_NOZZLE, us);
 }
 
 // ===== Read IMU =====
@@ -175,7 +196,9 @@ void pidLoop() {
   pid_last_error = error;
 
   float output = Kp * error + Ki * pid_integral + Kd * derivative;
-  cmd.nozzle = constrain((int)output, -45, 45);
+  cmd.nozzle = constrain(
+    (int)output, -NOZZLE_SOFT_LIMIT_DEG, NOZZLE_SOFT_LIMIT_DEG
+  );
 }
 
 // ===== Read Battery =====
@@ -204,11 +227,14 @@ void checkFailsafe() {
     }
   }
 
-  // Water ingress alarm
+  // Water ingress alarm: never command an unattended "run toward shore".
+  // A wet bilge can imply an electrical or buoyancy failure, so de-energize.
   if (telemetry.water > 0.5) {
-    cmd.throttle = 30;  // Head toward shore
-    setThrottle(30);
-    Serial.println("WATER ALARM: heading to shore");
+    cmd.throttle = 0;
+    cmd.cannon = false;
+    setThrottle(0);
+    digitalWrite(PIN_PUMP, LOW);
+    Serial.println("WATER ALARM: propulsion and cannon stopped");
   }
 
   // Low battery
@@ -221,7 +247,7 @@ void checkFailsafe() {
 
 // ===== WebSocket Command Handler =====
 void handleCommand(String json_str) {
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, json_str);
 
   if (err) return;
@@ -237,14 +263,17 @@ void handleCommand(String json_str) {
     cmd.throttle = constrain(value, -100, 100);
     setThrottle(cmd.throttle);
   }
-  else if (strcmp(action, "steer") == 0) {
-    cmd.nozzle = constrain(value, -90, 90);
+  else if (strcmp(action, "steer") == 0 ||
+           strcmp(action, "rudder") == 0) {
+    cmd.nozzle = constrain(
+      value, -NOZZLE_SOFT_LIMIT_DEG, NOZZLE_SOFT_LIMIT_DEG
+    );
     setNozzle(cmd.nozzle);
     cmd.autopilot = false;  // Manual steering disables autopilot
   }
   else if (strcmp(action, "cannon") == 0) {
-    // SAFETY INTERLOCK: only fire when water sensor is dry AND throttle < 30%
-    // Prevents firing-while-beached and recoil-induced swamping at speed
+    // SAFETY INTERLOCK: only fire when the bilge is dry and speed is low.
+    // This does not detect whether the cannon pickup itself is submerged.
     bool want_fire = (value > 0);
     bool safe_to_fire = want_fire
                         && (telemetry.water < 0.3)        // dry
@@ -280,6 +309,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len) 
     case WStype_TEXT:
       handleCommand(String((char*)payload));
       break;
+    default:
+      break;
   }
 }
 
@@ -301,7 +332,7 @@ void handleRoot() {
 }
 
 void handleTelemetry() {
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   doc["bat"] = telemetry.bat_v;
   doc["heading"] = telemetry.heading;
   doc["pitch"] = telemetry.pitch;
@@ -314,6 +345,7 @@ void handleTelemetry() {
   doc["throttle"] = cmd.throttle;
   doc["nozzle"] = cmd.nozzle;
   doc["autopilot"] = cmd.autopilot;
+  doc["cannon"] = cmd.cannon;
 
   String out;
   serializeJson(doc, out);
@@ -424,7 +456,7 @@ void parseGPS() {
 
 // ===== Broadcast Telemetry =====
 void broadcastTelemetry() {
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   doc["bat"] = telemetry.bat_v;
   doc["heading"] = telemetry.heading;
   doc["pitch"] = telemetry.pitch;
@@ -436,6 +468,8 @@ void broadcastTelemetry() {
   doc["water"] = telemetry.water;
   doc["throttle"] = cmd.throttle;
   doc["nozzle"] = cmd.nozzle;
+  doc["autopilot"] = cmd.autopilot;
+  doc["cannon"] = cmd.cannon;
 
   String out;
   serializeJson(doc, out);
@@ -457,16 +491,20 @@ void setup() {
     while (1) delay(1000);
   }
   Serial.println("MPU-6050 detected, calibrating...");
-  mpu.calcGyroOffsets(true);  // Calibrate with device stationary
+  mpu.calcGyroOffsets();  // Calibrate with device stationary
   Serial.println("IMU calibrated");
 
-  // Initialize PWM channels
-  ledcSetup(PWM_CH_ESC, PWM_FREQ, PWM_RES);
-  ledcAttachPin(PIN_ESC, PWM_CH_ESC);
+  // Arduino-ESP32 3.x LEDC API: attach frequency/resolution directly to pin.
+  if (!ledcAttach(PIN_ESC, PWM_FREQ, PWM_RES)) {
+    Serial.println("ERROR: ESC PWM attach failed");
+    while (1) delay(1000);
+  }
   setThrottle(0);  // Neutral
 
-  ledcSetup(PWM_CH_NOZZLE, PWM_FREQ, PWM_RES);
-  ledcAttachPin(PIN_NOZZLE, PWM_CH_NOZZLE);
+  if (!ledcAttach(PIN_NOZZLE, PWM_FREQ, PWM_RES)) {
+    Serial.println("ERROR: nozzle PWM attach failed");
+    while (1) delay(1000);
+  }
   setNozzle(0);  // Center
 
   // Pump MOSFET
@@ -479,7 +517,7 @@ void setup() {
   pinMode(PIN_WATER_ADC, INPUT);
 
   // GPS (UART2) — optional
-  Serial2.begin(9600, SERIAL_8N1, 16, 17);
+  Serial2.begin(9600, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
 
   // WiFi — connect to phone hotspot (NOT softAP)
   WiFi.mode(WIFI_STA);
@@ -533,10 +571,11 @@ void loop() {
   }
 
   // 10Hz guardian tasks
-  if (now - last_telemetry_ms >= 100) {
+  if (now - last_guardian_ms >= GUARDIAN_INTERVAL) {
     readBattery();
     readWater();
     checkFailsafe();
+    last_guardian_ms = now;
   }
 
   // 1Hz telemetry broadcast

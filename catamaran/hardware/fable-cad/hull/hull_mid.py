@@ -40,7 +40,7 @@ SEG_L = 160.0         # each of bow / mid / stern
 BULK_T = 3.0          # joint bulkhead thickness
 FLANGE_W = 8.0        # inward deck flange lip width (mid + stern)
 FLANGE_T = 2.4        # deck flange thickness (Z 69.6..72)
-WL = 38.0             # est. static waterline (reference only)
+WL = 35.2             # 1.15 kg + open wet-well estimate; see hydrostatics.py
 
 # Inner analytic offset profile (DESIGN.md — identical in all hull segments)
 IN_KEEL_Z = WALL / math.cos(math.radians(DEADRISE_DEG))      # 2.554
@@ -190,6 +190,9 @@ def gen_step() -> bd.Part:
     hull = hull.cut(_cyl_y(WIRE_D, -1.0, BULK_T + 1.0, wx, wz))
     hull = hull.cut(_cyl_y(WIRE_D, SEG_L - BULK_T - 1.0, SEG_L + 1.0, wx, wz))
 
+    if not isinstance(hull, bd.Part):
+        hull = bd.Part(hull.wrapped)
+    hull.label = "hull_mid"
     return hull
 
 
@@ -204,4 +207,7 @@ if __name__ == "__main__":
           and abs(sz.Y - (SEG_L + PIN_L)) < 0.5
           and abs(sz.Z - DEPTH) < 0.5)
     print(f"Expected ~128 x 164 x 72: {'OK' if ok else 'MISMATCH'}")
-    print(f"Volume: {p.volume / 1000.0:.1f} cm^3")
+    print(f"Volume: {sum(s.volume for s in p.solids()) / 1000.0:.1f} cm^3")
+    assert len(p.solids()) == 1
+    assert ok
+    print("self-check OK")
