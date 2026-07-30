@@ -44,6 +44,7 @@ A fully 3D-printed RC boat you control from your phone, with LLM autonomous cont
 | **Total** | **~$130 CAD** | |
 
 > Already own battery+charger? **~$95 CAD**. Library prints instead of friend? **~$165 CAD**.
+> Full purchase list: [`BOM.md`](BOM.md).
 
 ## 4. Control Architecture
 
@@ -62,7 +63,7 @@ L5: Human        — Phone PWA, STOP button                  [300ms]
 
 | Phase | What | Status |
 |-------|------|--------|
-| 0 | CAD design (monohull + jet + electronics) | **In progress** |
+| 0 | CAD design (monohull + jet + electronics) | **Done — ready to print** |
 | 1 | Print + assemble + waterproof | Planned |
 | 2 | Phone PWA control via WiFi | Planned |
 | 3 | LLM autonomous control | Future |

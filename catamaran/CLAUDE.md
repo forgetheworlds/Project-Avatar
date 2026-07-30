@@ -47,6 +47,8 @@ Project Boat is a fully 3D-printed, LLM-controlled RC boat with a water cannon. 
 | PLA | ~250g for monohull (friend's printer) | Retail PLA | $5 |
 | **Total** | | | **~$117-150** |
 
+Full buy list: `docs/BOM.md`.
+
 ## Pin Assignments (ESP32-S3)
 
 | Function | GPIO | Protocol | Notes |
@@ -60,7 +62,7 @@ Project Boat is a fully 3D-printed, LLM-controlled RC boat with a water cannon. 
 | I2C SCL | 9 | I2C | DevKitC-1 defaults; GPIO 22 does not exist on S3 |
 | GPS RX/TX | 17/18 | UART2 | Optional NEO-6M |
 
-> CAD printables live in `hardware/fable-cad/` (`DESIGN.md`).
+> CAD printables live in `hardware/cad/` (`docs/DESIGN.md`, STLs in `print/`).
 
 ## Control Architecture
 
@@ -79,8 +81,8 @@ L5: Human override        — Phone PWA, big red STOP button               [300m
 
 | Phase | What | Status |
 |-------|------|--------|
-| 0 | CAD design (monohull + jet drive + electronics) | In progress |
-| 1 | Print + assemble + waterproof | Planned |
+| 0 | CAD design (monohull + jet drive + electronics) | Done (ready to print) |
+| 1 | Print + assemble + waterproof | Next |
 | 2 | Phone PWA control via WiFi | Planned |
 | 3 | LLM autonomous control via ground station | Future |
 | 4 | Skill library + multi-agent coordination | Future |
@@ -90,22 +92,24 @@ L5: Human override        — Phone PWA, big red STOP button               [300m
 ```
 catamaran/
 ├── CLAUDE.md              # This file
-├── docs/                  # Design docs, specs
-│   ├── ARCHITECTURE.md    # System architecture
-│   └── MASTER_BRIEFING.md # Full project spec
+├── docs/                  # Project docs + buy BOM + research reports
+│   ├── ARCHITECTURE.md
+│   ├── MASTER_BRIEFING.md
+│   ├── BOM.md             # Purchased parts only
+│   ├── designs/           # Reference OpenSCAD (jdobry waterjet)
+│   └── …research reports
 ├── hardware/
-│   ├── fable-cad/         # Printable build123d sources + STEP/STL
-│   │   ├── hull/          # Monohull deep-V segments
-│   │   ├── jetdrive/      # 3D printed jet drive
-│   │   ├── deck/          # Mid + stern lids
-│   │   ├── electronics/   # ESP32 tray + battery cradle
-│   │   ├── cannon/        # Water cannon + optional turret
-│   │   ├── print/         # Consolidated STLs for slicer
-│   │   └── DESIGN.md      # CAD design contract
-│   └── bom/               # Bill of materials
-├── firmware/              # ESP32-S3 firmware
+│   └── cad/               # build123d sources + STEP + print STLs
+│       ├── docs/          # DESIGN, ENGINEERING_BRIEF, PRINT_RELEASE
+│       ├── print/         # All slicer STLs
+│       ├── hull/ jetdrive/ deck/ electronics/ cannon/
+│       ├── closures/ components/ stability/
+│       └── boat_assembly.py
+├── firmware/              # ESP32-S3 onboard code
 ├── software/
-│   ├── ground_station/    # Guardian, vision, LLM
+│   ├── ground_station/    # Laptop GCS / Guardian / LLM
 │   └── phone_app/         # PWA control
-└── research/              # Design research, sources
+└── scripts/               # CAD validation helpers
+    ├── validate_design.py
+    └── validate_holes.py
 ```

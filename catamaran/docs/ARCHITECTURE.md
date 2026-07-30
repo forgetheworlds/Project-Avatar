@@ -159,22 +159,18 @@ catamaran/
 ├── CLAUDE.md
 ├── docs/
 │   ├── MASTER_BRIEFING.md
-│   └── ARCHITECTURE.md          ← this file
-├── hardware/
-│   ├── cad/                     # build123d Python sources + STEP exports
-│   │   ├── hull/                # Deep-V monohull segments
-│   │   ├── jetdrive/            # FJD jet drive (28mm)
-│   │   ├── electronics/         # ESP32 tray, battery mount
-│   │   └── cannon/              # Water cannon assembly
-│   └── bom/
-│       └── BOM.md
-├── firmware/
-│   └── boat_control.ino         # ESP32-S3 firmware
-├── software/
-│   ├── phone_app/               # PWA: index.html + app.js
-│   └── ground_station/
-│       └── gcs.py               # Python ground station
-├── research/
+│   ├── ARCHITECTURE.md          ← this file
+│   ├── BOM.md                   # Purchased parts only
 │   └── designs/jdobry-waterjet/ # OpenSCAD jet drive reference
-└── scripts/
+├── hardware/
+│   └── cad/                     # build123d sources + STEP + STLs
+│       ├── docs/                # DESIGN, ENGINEERING_BRIEF, PRINT_RELEASE
+│       ├── print/               # All slicer STLs
+│       ├── hull/ jetdrive/ deck/ electronics/ cannon/
+│       └── closures/ components/ stability/
+├── firmware/                    # ESP32-S3 onboard
+├── software/
+│   ├── phone_app/               # PWA
+│   └── ground_station/          # Laptop GCS
+└── scripts/                     # validate_design.py, validate_holes.py
 ```
